@@ -21,3 +21,4 @@ pub mod player;
 ///
 /// Procedural cave generation for endless gameplay.
 pub mod cave;
+pub mod collision;
