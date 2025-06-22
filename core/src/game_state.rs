@@ -1,3 +1,4 @@
+// core/src/game_state.rs
 /// Represents all possible states in the Fuel Drift game.
 ///
 /// Following the State pattern for clear state management and transitions.
@@ -18,6 +19,7 @@ pub enum GameEvent {
     PauseToggle,
     Dead,
     Reset,
+    BackToMenu, // Neues Event für Rückkehr zum Hauptmenü
 }
 
 impl GameState {
@@ -38,10 +40,12 @@ impl GameState {
             // From Paused
             (GameState::Paused, GameEvent::PauseToggle) => GameState::Playing,
             (GameState::Paused, GameEvent::Reset) => GameState::Menu,
+            (GameState::Paused, GameEvent::BackToMenu) => GameState::Menu,
 
             // From GameOver
             (GameState::GameOver, GameEvent::Start) => GameState::Playing,
             (GameState::GameOver, GameEvent::Reset) => GameState::Menu,
+            (GameState::GameOver, GameEvent::BackToMenu) => GameState::Menu,
 
             // Invalid transitions remain in current state
             (state, _) => state,

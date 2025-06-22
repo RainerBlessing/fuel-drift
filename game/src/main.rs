@@ -1,6 +1,7 @@
 // game/src/main.rs
 
 use macroquad::prelude::*;
+use macroquad::ui::{hash, root_ui, widgets};
 use core::game_state::{GameEvent, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
 use core::cave::Cave;
@@ -33,6 +34,11 @@ const LOW_FUEL_THRESHOLD: f32 = 0.2;
 const MEDIUM_FUEL_THRESHOLD: f32 = 0.5;
 const BEAM_ICON_SIZE: f32 = 16.0;
 
+/// Menu UI constants
+const BUTTON_WIDTH: f32 = 200.0;
+const BUTTON_HEIGHT: f32 = 50.0;
+const MENU_SPACING: f32 = 20.0;
+
 /// Game state container following Single Responsibility Principle
 struct GameWorld {
     state_machine: StateMachine,
@@ -43,6 +49,7 @@ struct GameWorld {
     distance_tracker: DistanceTracker,
     camera_offset_x: f32,
     collision_flash_timer: f32,
+    should_quit: bool,
 }
 
 impl GameWorld {
@@ -56,6 +63,7 @@ impl GameWorld {
             distance_tracker: DistanceTracker::new(),
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
+            should_quit: false,
         }
     }
 
@@ -81,39 +89,172 @@ fn window_conf() -> Conf {
     }
 }
 
-/// Handles input for state transitions with low cyclomatic complexity
-fn handle_state_input(world: &mut GameWorld) {
+/// Handles main menu UI and interactions
+fn handle_main_menu(world: &mut GameWorld) {
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    // Title
+    draw_text(
+        "FUEL DRIFT",
+        WINDOW_WIDTH as f32 / 2.0 - 80.0,
+        center_y - 100.0,
+        40.0,
+        WHITE,
+    );
+
+    // Instructions
+    draw_text(
+        "Arrow keys: Move | W/S: Tractor Beam | Watch your fuel!",
+        WINDOW_WIDTH as f32 / 2.0 - 180.0,
+        center_y - 50.0,
+        16.0,
+        GRAY,
+    );
+
+    // Start button
+    if widgets::Button::new("Start Game")
+        .position(vec2(center_x, center_y))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::Start);
+        world.reset();
+    }
+
+    // Quit button
+    if widgets::Button::new("Quit")
+        .position(vec2(center_x, center_y + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.should_quit = true;
+    }
+}
+
+/// Handles pause menu overlay
+fn handle_pause_menu(world: &mut GameWorld) {
+    // Semi-transparent overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    // Title
+    draw_text(
+        "PAUSED",
+        WINDOW_WIDTH as f32 / 2.0 - 50.0,
+        center_y - 50.0,
+        30.0,
+        WHITE,
+    );
+
+    // Resume button
+    if widgets::Button::new("Resume")
+        .position(vec2(center_x, center_y))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::PauseToggle);
+    }
+
+    // Back to Menu button
+    if widgets::Button::new("Back to Menu")
+        .position(vec2(center_x, center_y + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::BackToMenu);
+    }
+}
+
+/// Handles game over menu
+fn handle_game_over_menu(world: &mut GameWorld) {
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    let death_message = if world.fuel.is_empty() {
+        "OUT OF FUEL!"
+    } else {
+        "CRASHED!"
+    };
+
+    // Game Over title
+    draw_text(
+        "GAME OVER",
+        WINDOW_WIDTH as f32 / 2.0 - 70.0,
+        center_y - 80.0,
+        30.0,
+        RED,
+    );
+
+    // Death message
+    draw_text(
+        death_message,
+        WINDOW_WIDTH as f32 / 2.0 - 65.0,
+        center_y - 50.0,
+        18.0,
+        WHITE,
+    );
+
+    // Show final distance
+    let final_distance = world.distance_tracker.distance_formatted();
+    let distance_text = format!("Distance: {}", final_distance);
+    draw_text(
+        &distance_text,
+        WINDOW_WIDTH as f32 / 2.0 - 80.0,
+        center_y - 25.0,
+        16.0,
+        YELLOW,
+    );
+
+    // Replay button
+    if widgets::Button::new("Replay")
+        .position(vec2(center_x, center_y + 20.0))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::Start);
+        world.reset();
+    }
+
+    // Back to Menu button
+    if widgets::Button::new("Back to Menu")
+        .position(vec2(center_x, center_y + 20.0 + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::BackToMenu);
+    }
+}
+
+/// Handles keyboard input for state transitions
+fn handle_keyboard_input(world: &mut GameWorld) {
     let current_state = world.state_machine.current();
 
     match current_state {
-        core::game_state::GameState::Menu => {
-            if is_key_pressed(KeyCode::Enter) {
-                world.state_machine.handle_event(GameEvent::Start);
-                world.reset();
-            }
-        }
         core::game_state::GameState::Playing => {
-            if is_key_pressed(KeyCode::P) || is_key_pressed(KeyCode::Escape) {
+            if is_key_pressed(KeyCode::Escape) {
                 world.state_machine.handle_event(GameEvent::PauseToggle);
             }
         }
         core::game_state::GameState::Paused => {
-            if is_key_pressed(KeyCode::P) || is_key_pressed(KeyCode::Escape) {
-                world.state_machine.handle_event(GameEvent::PauseToggle);
-            }
-            if is_key_pressed(KeyCode::R) {
-                world.state_machine.handle_event(GameEvent::Reset);
+            if is_key_pressed(KeyCode::Escape) {
+                world.state_machine.handle_event(GameEvent::BackToMenu);
             }
         }
         core::game_state::GameState::GameOver => {
-            if is_key_pressed(KeyCode::Enter) {
-                world.state_machine.handle_event(GameEvent::Start);
-                world.reset();
-            }
-            if is_key_pressed(KeyCode::R) {
-                world.state_machine.handle_event(GameEvent::Reset);
+            if is_key_pressed(KeyCode::Escape) {
+                world.state_machine.handle_event(GameEvent::BackToMenu);
             }
         }
+        _ => {}
     }
 }
 
@@ -130,22 +271,17 @@ fn collect_player_input() -> PlayerInput {
 }
 
 /// Checks if player is currently consuming fuel.
-///
-/// Fuel is consumed when any movement input is active.
 fn is_consuming_fuel(input: PlayerInput) -> bool {
     input.up || input.down || input.left || input.right
 }
 
 /// Checks for collision between player and cave walls.
-///
-/// Returns true if collision detected, false otherwise.
 fn check_player_collision(player: &Player, cave: &mut Cave, camera_offset_x: f32) -> bool {
     let player_pos = (
         player.pos.x - PLAYER_SIZE.0 / 2.0,
         player.pos.y - PLAYER_SIZE.1 / 2.0,
     );
 
-    // Get visible cave segments
     let view_start = camera_offset_x;
     let view_end = camera_offset_x + WINDOW_WIDTH as f32;
     let segments = cave.segments_in_view(view_start, view_end);
@@ -212,7 +348,7 @@ fn update_game_world(world: &mut GameWorld, dt: f32) {
             if fuel_became_empty {
                 world.state_machine.handle_event(GameEvent::Dead);
                 world.collision_flash_timer = COLLISION_FLASH_DURATION;
-                return; // Don't update player if fuel is empty
+                return;
             }
 
             // Update player physics only if fuel is available
@@ -434,115 +570,6 @@ fn render_collision_flash(collision_flash_timer: f32) {
     }
 }
 
-/// Renders UI overlays based on game state
-fn render_ui(state_machine: &StateMachine, fuel: &Fuel, distance_tracker: &DistanceTracker, tractor_beam: &TractorBeam) {
-    let current_state = state_machine.current();
-
-    match current_state {
-        core::game_state::GameState::Menu => {
-            draw_text(
-                "FUEL DRIFT",
-                WINDOW_WIDTH as f32 / 2.0 - 80.0,
-                WINDOW_HEIGHT as f32 / 2.0 - 50.0,
-                40.0,
-                WHITE,
-            );
-            draw_text(
-                "Press ENTER to start",
-                WINDOW_WIDTH as f32 / 2.0 - 90.0,
-                WINDOW_HEIGHT as f32 / 2.0,
-                20.0,
-                GRAY,
-            );
-            draw_text(
-                "Arrow keys: Move | W/S: Tractor Beam | Watch your fuel!",
-                WINDOW_WIDTH as f32 / 2.0 - 180.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 30.0,
-                16.0,
-                GRAY,
-            );
-        }
-        core::game_state::GameState::Playing => {
-            render_fuel_bar(fuel);
-            render_distance_display(distance_tracker);
-            render_beam_indicator(tractor_beam);
-        }
-        core::game_state::GameState::Paused => {
-            // Semi-transparent overlay
-            draw_rectangle(
-                0.0,
-                0.0,
-                WINDOW_WIDTH as f32,
-                WINDOW_HEIGHT as f32,
-                Color::new(0.0, 0.0, 0.0, 0.5),
-            );
-
-            draw_text(
-                "PAUSED",
-                WINDOW_WIDTH as f32 / 2.0 - 50.0,
-                WINDOW_HEIGHT as f32 / 2.0,
-                30.0,
-                WHITE,
-            );
-            draw_text(
-                "Press P or ESC to resume",
-                WINDOW_WIDTH as f32 / 2.0 - 100.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 40.0,
-                16.0,
-                GRAY,
-            );
-            draw_text(
-                "Press R to return to menu",
-                WINDOW_WIDTH as f32 / 2.0 - 95.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 60.0,
-                16.0,
-                GRAY,
-            );
-        }
-        core::game_state::GameState::GameOver => {
-            let death_message = if fuel.is_empty() {
-                "OUT OF FUEL!"
-            } else {
-                "CRASHED!"
-            };
-
-            draw_text(
-                "GAME OVER",
-                WINDOW_WIDTH as f32 / 2.0 - 70.0,
-                WINDOW_HEIGHT as f32 / 2.0 - 20.0,
-                30.0,
-                RED,
-            );
-            draw_text(
-                death_message,
-                WINDOW_WIDTH as f32 / 2.0 - 65.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 10.0,
-                18.0,
-                WHITE,
-            );
-
-            // Show final distance
-            let final_distance = distance_tracker.distance_formatted();
-            let distance_text = format!("Distance: {}", final_distance);
-            draw_text(
-                &distance_text,
-                WINDOW_WIDTH as f32 / 2.0 - 80.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 35.0,
-                16.0,
-                YELLOW,
-            );
-
-            draw_text(
-                "ENTER to restart, R to menu",
-                WINDOW_WIDTH as f32 / 2.0 - 110.0,
-                WINDOW_HEIGHT as f32 / 2.0 + 60.0,
-                16.0,
-                GRAY,
-            );
-        }
-    }
-}
-
 /// Renders the tractor beam as a blue rectangle ending at cave walls
 fn render_tractor_beam(player: &Player, tractor_beam: &TractorBeam, cave: &mut Cave, camera_offset_x: f32) {
     if !tractor_beam.is_active() {
@@ -593,10 +620,6 @@ fn render_tractor_beam(player: &Player, tractor_beam: &TractorBeam, cave: &mut C
 }
 
 /// Gets the cave wall height (ceiling or floor) at the specified x position.
-///
-/// Returns the y-coordinate of the wall that the beam should hit.
-/// For Up direction: returns ceiling height
-/// For Down direction: returns floor height
 fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Cave) -> f32 {
     // Get cave segments around player position
     let view_start = x_pos - 50.0; // Small buffer around player
@@ -620,38 +643,57 @@ fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Ca
     }
 }
 
-/// Main game loop with clear separation of concerns
+/// Main game loop with menu system integration
 #[macroquad::main(window_conf)]
 async fn main() {
     let mut world = GameWorld::new();
 
     loop {
+        if world.should_quit {
+            break;
+        }
+
         let dt = get_frame_time();
 
-        // Handle input
-        handle_state_input(&mut world);
+        // Handle keyboard input
+        handle_keyboard_input(&mut world);
 
-        // Update game world
-        update_game_world(&mut world, dt);
-
-        // Render
-        clear_background(DARKBLUE);
-
-        // Render cave only during gameplay states
+        // Handle UI based on current state
         match world.state_machine.current() {
-            core::game_state::GameState::Playing | core::game_state::GameState::Paused => {
+            core::game_state::GameState::Menu => {
+                clear_background(DARKBLUE);
+                handle_main_menu(&mut world);
+            }
+            core::game_state::GameState::Playing => {
+                update_game_world(&mut world, dt);
+
+                clear_background(DARKBLUE);
                 render_cave(&mut world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
                 render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_fuel_bar(&world.fuel);
+                render_distance_display(&world.distance_tracker);
+                render_beam_indicator(&world.tractor_beam);
+                render_collision_flash(world.collision_flash_timer);
             }
-            _ => {}
+            core::game_state::GameState::Paused => {
+                // Keep game visuals but add pause overlay
+                clear_background(DARKBLUE);
+                render_cave(&mut world.cave, world.camera_offset_x);
+                render_player(&world.player, world.camera_offset_x);
+                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_fuel_bar(&world.fuel);
+                render_distance_display(&world.distance_tracker);
+                render_beam_indicator(&world.tractor_beam);
+
+                handle_pause_menu(&mut world);
+            }
+            core::game_state::GameState::GameOver => {
+                clear_background(DARKBLUE);
+                render_collision_flash(world.collision_flash_timer);
+                handle_game_over_menu(&mut world);
+            }
         }
-
-        // Render collision flash effect
-        render_collision_flash(world.collision_flash_timer);
-
-        // Render UI
-        render_ui(&world.state_machine, &world.fuel, &world.distance_tracker, &world.tractor_beam);
 
         next_frame().await;
     }

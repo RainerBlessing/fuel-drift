@@ -1,3 +1,4 @@
+# Datei: Cargo.toml (Root Workspace)
 [workspace]
 members = ["core", "game"]
 resolver = "2"
