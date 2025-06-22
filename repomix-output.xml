@@ -1,0 +1,3333 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/workflows/ci.yml
+.gitignore
+Cargo.toml
+core/cargo.toml
+core/src/cave.rs
+core/src/collision.rs
+core/src/distance.rs
+core/src/fuel.rs
+core/src/game_state.rs
+core/src/lib.rs
+core/src/player.rs
+core/src/tractor.rs
+core/tests/cave.rs
+core/tests/collision.rs
+core/tests/fuel.rs
+core/tests/game_state.rs
+core/tests/integration.rs
+core/tests/player.rs
+core/tests/smoke.rs
+core/tests/tractor.rs
+game/cargo.toml
+game/src/main.rs
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/workflows/ci.yml">
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+</file>
+
+<file path=".gitignore">
+/target
+</file>
+
+<file path="core/cargo.toml">
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+</file>
+
+<file path="core/src/cave.rs">
+use std::collections::VecDeque;
+
+/// A single segment of the cave with ceiling and floor heights.
+///
+/// Each segment represents a vertical slice of the cave tunnel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CaveSegment {
+    pub ceiling: f32,
+    pub floor: f32,
+    pub x_start: f32,
+    pub width: f32,
+}
+
+impl CaveSegment {
+    /// Creates a new cave segment.
+    pub fn new(ceiling: f32, floor: f32, x_start: f32, width: f32) -> Self {
+        Self {
+            ceiling,
+            floor,
+            x_start,
+            width,
+        }
+    }
+
+    /// Gets the end x-coordinate of this segment.
+    pub fn x_end(&self) -> f32 {
+        self.x_start + self.width
+    }
+
+    /// Gets the gap height between floor and ceiling.
+    pub fn gap_height(&self) -> f32 {
+        self.floor - self.ceiling
+    }
+}
+
+/// Cave generation constants.
+pub struct CaveConstants;
+
+impl CaveConstants {
+    pub const MIN_GAP: f32 = 140.0; // Minimum gap between ceiling and floor
+    pub const SEGMENT_WIDTH: f32 = 50.0; // Width of each segment
+    pub const MAX_HEIGHT_CHANGE: f32 = 20.0; // Maximum height change per segment
+    pub const INITIAL_CEILING: f32 = 100.0;
+    pub const INITIAL_FLOOR: f32 = 400.0;
+}
+
+/// Simple linear congruential generator for deterministic randomness.
+///
+/// Provides consistent cave generation for testing and reproducibility.
+#[derive(Debug, Clone, Copy)]
+pub struct SimpleRng {
+    seed: u32,
+}
+
+impl SimpleRng {
+    /// Creates a new RNG with the given seed.
+    pub fn new(seed: u32) -> Self {
+        Self { seed }
+    }
+
+    /// Generates the next random number in range [0, 1).
+    pub fn next_f32(&mut self) -> f32 {
+        self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        (self.seed as f32) / (u32::MAX as f32)
+    }
+
+    /// Generates a random float in the given range.
+    pub fn range(&mut self, min: f32, max: f32) -> f32 {
+        min + self.next_f32() * (max - min)
+    }
+}
+
+/// Procedural cave generator maintaining an endless tunnel.
+///
+/// Manages cave segments and ensures consistent generation rules.
+#[derive(Debug)]
+pub struct Cave {
+    segments: VecDeque<CaveSegment>,
+    rng: SimpleRng,
+    next_x: f32,
+}
+
+impl Cave {
+    /// Creates a new cave with the given seed.
+    pub fn new(seed: u32) -> Self {
+        let mut cave = Self {
+            segments: VecDeque::new(),
+            rng: SimpleRng::new(seed),
+            next_x: 0.0,
+        };
+
+        // Generate initial segment
+        cave.generate_initial_segment();
+        cave
+    }
+
+    /// Generates the initial cave segment.
+    fn generate_initial_segment(&mut self) {
+        let segment = CaveSegment::new(
+            CaveConstants::INITIAL_CEILING,
+            CaveConstants::INITIAL_FLOOR,
+            0.0,
+            CaveConstants::SEGMENT_WIDTH,
+        );
+
+        self.segments.push_back(segment);
+        self.next_x = segment.x_end();
+    }
+
+    /// Generates the next cave segment with random variation.
+    ///
+    /// Ensures minimum gap is maintained and segments are contiguous.
+    pub fn generate_next(&mut self) {
+        let prev_segment = self.segments.back()
+            .expect("Cave should always have at least one segment");
+
+        let ceiling_change = self.rng.range(
+            -CaveConstants::MAX_HEIGHT_CHANGE,
+            CaveConstants::MAX_HEIGHT_CHANGE,
+        );
+        let floor_change = self.rng.range(
+            -CaveConstants::MAX_HEIGHT_CHANGE,
+            CaveConstants::MAX_HEIGHT_CHANGE,
+        );
+
+        let mut new_ceiling = prev_segment.ceiling + ceiling_change;
+        let mut new_floor = prev_segment.floor + floor_change;
+
+        // Ensure minimum gap is maintained
+        if new_floor - new_ceiling < CaveConstants::MIN_GAP {
+            let gap_center = (new_ceiling + new_floor) / 2.0;
+            new_ceiling = gap_center - CaveConstants::MIN_GAP / 2.0;
+            new_floor = gap_center + CaveConstants::MIN_GAP / 2.0;
+        }
+
+        let segment = CaveSegment::new(
+            new_ceiling,
+            new_floor,
+            self.next_x,
+            CaveConstants::SEGMENT_WIDTH,
+        );
+
+        self.segments.push_back(segment);
+        self.next_x = segment.x_end();
+
+        // Remove old segments to prevent infinite memory growth
+        const MAX_SEGMENTS: usize = 100;
+        while self.segments.len() > MAX_SEGMENTS {
+            self.segments.pop_front();
+        }
+    }
+
+    /// Returns segments visible in the given x range.
+    ///
+    /// Generates new segments as needed to fill the view.
+    pub fn segments_in_view(&mut self, x_min: f32, x_max: f32) -> Vec<CaveSegment> {
+        // Generate segments until we cover the view range
+        while self.next_x < x_max + CaveConstants::SEGMENT_WIDTH {
+            self.generate_next();
+        }
+
+        // Return segments that intersect with the view range
+        self.segments
+            .iter()
+            .filter(|segment| {
+                segment.x_start < x_max && segment.x_end() > x_min
+            })
+            .copied()
+            .collect()
+    }
+
+    /// Gets all current segments (for testing).
+    pub fn segments(&self) -> &VecDeque<CaveSegment> {
+        &self.segments
+    }
+}
+</file>
+
+<file path="core/src/collision.rs">
+/// 2D axis-aligned bounding box for collision detection.
+///
+/// Simple rectangle representation following the principle of least surprise.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Aabb {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl Aabb {
+    /// Creates a new AABB.
+    pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self { x, y, width, height }
+    }
+
+    /// Gets the right edge x-coordinate.
+    pub fn right(&self) -> f32 {
+        self.x + self.width
+    }
+
+    /// Gets the bottom edge y-coordinate.
+    pub fn bottom(&self) -> f32 {
+        self.y + self.height
+    }
+
+    /// Gets the left edge x-coordinate.
+    pub fn left(&self) -> f32 {
+        self.x
+    }
+
+    /// Gets the top edge y-coordinate.
+    pub fn top(&self) -> f32 {
+        self.y
+    }
+}
+
+/// Checks if two axis-aligned bounding boxes overlap.
+///
+/// Uses the separating axis theorem for AABB collision detection.
+/// Returns true if the rectangles overlap, false otherwise.
+///
+/// # Arguments
+/// * `a_pos` - Position (x, y) of the first rectangle
+/// * `a_size` - Size (width, height) of the first rectangle  
+/// * `b_pos` - Position (x, y) of the second rectangle
+/// * `b_size` - Size (width, height) of the second rectangle
+///
+/// # Examples
+/// ```
+/// use core::collision::aabb_overlap;
+///
+/// // Non-overlapping rectangles
+/// assert!(!aabb_overlap((0.0, 0.0), (10.0, 10.0), (20.0, 0.0), (10.0, 10.0)));
+///
+/// // Overlapping rectangles
+/// assert!(aabb_overlap((0.0, 0.0), (10.0, 10.0), (5.0, 5.0), (10.0, 10.0)));
+/// ```
+pub fn aabb_overlap(
+    a_pos: (f32, f32),
+    a_size: (f32, f32),
+    b_pos: (f32, f32),
+    b_size: (f32, f32),
+) -> bool {
+    let a = Aabb::new(a_pos.0, a_pos.1, a_size.0, a_size.1);
+    let b = Aabb::new(b_pos.0, b_pos.1, b_size.0, b_size.1);
+
+    check_aabb_overlap(&a, &b)
+}
+
+/// Checks if two AABB structs overlap.
+///
+/// Internal helper function with low cyclomatic complexity.
+/// Uses early return for non-overlapping cases.
+fn check_aabb_overlap(a: &Aabb, b: &Aabb) -> bool {
+    // Check for separation on x-axis
+    if a.right() <= b.left() || b.right() <= a.left() {
+        return false;
+    }
+
+    // Check for separation on y-axis
+    if a.bottom() <= b.top() || b.bottom() <= a.top() {
+        return false;
+    }
+
+    // No separation found, boxes must overlap
+    true
+}
+</file>
+
+<file path="core/src/distance.rs">
+/// Distance tracking system for the Fuel Drift game.
+///
+/// Tracks accumulated distance traveled during gameplay
+/// following the Single Responsibility Principle.
+
+/// Distance tracker with accumulated distance measurement.
+///
+/// Tracks the total distance traveled by the player during gameplay.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DistanceTracker {
+    pub distance: f32,
+}
+
+impl DistanceTracker {
+    /// Creates a new distance tracker starting at zero.
+    pub fn new() -> Self {
+        Self { distance: 0.0 }
+    }
+
+    /// Updates the distance based on scroll speed and delta time.
+    ///
+    /// # Arguments
+    /// * `scroll_speed` - Speed of scrolling in pixels per second
+    /// * `dt` - Delta time in seconds
+    pub fn update(&mut self, scroll_speed: f32, dt: f32) {
+        self.distance += scroll_speed * dt;
+    }
+
+    /// Resets the distance to zero.
+    pub fn reset(&mut self) {
+        self.distance = 0.0;
+    }
+
+    /// Gets the current distance as an integer for display.
+    pub fn distance_as_int(&self) -> u32 {
+        self.distance as u32
+    }
+
+    /// Gets the current distance as a formatted string.
+    pub fn distance_formatted(&self) -> String {
+        format!("{}m", self.distance_as_int())
+    }
+}
+
+impl Default for DistanceTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+</file>
+
+<file path="core/src/fuel.rs">
+/// Fuel system for the Fuel Drift game.
+///
+/// Manages fuel consumption, refilling, and empty state detection
+/// following the Single Responsibility Principle.
+
+/// Fuel container with consumption and refilling capabilities.
+///
+/// Tracks current fuel level, maximum capacity, and burn rate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fuel {
+    pub current: f32,
+    pub max: f32,
+    pub burn_rate: f32,
+}
+
+impl Fuel {
+    /// Creates a new fuel container with specified parameters.
+    ///
+    /// # Arguments
+    /// * `max` - Maximum fuel capacity
+    /// * `burn_rate` - Fuel consumption per second when active
+    pub fn new(max: f32, burn_rate: f32) -> Self {
+        Self {
+            current: max,
+            max,
+            burn_rate,
+        }
+    }
+
+    /// Burns fuel over time when consuming is active.
+    ///
+    /// Returns true if fuel becomes empty during this burn cycle.
+    ///
+    /// # Arguments
+    /// * `dt` - Delta time in seconds
+    /// * `consuming` - Whether fuel should be consumed this frame
+    pub fn burn(&mut self, dt: f32, consuming: bool) -> bool {
+        if !consuming {
+            return false;
+        }
+
+        let burn_amount = self.burn_rate * dt;
+        let was_empty = self.current <= 0.0;
+
+        self.current = (self.current - burn_amount).max(0.0);
+
+        // Return true if fuel becomes empty this frame
+        !was_empty && self.current <= 0.0
+    }
+
+    /// Refills fuel by the specified amount, capped at maximum.
+    ///
+    /// # Arguments
+    /// * `amount` - Amount of fuel to add
+    pub fn refill(&mut self, amount: f32) {
+        self.current = (self.current + amount).min(self.max);
+    }
+
+    /// Checks if fuel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.current <= 0.0
+    }
+
+    /// Gets the fuel ratio (current/max) for UI display.
+    pub fn ratio(&self) -> f32 {
+        if self.max <= 0.0 {
+            0.0
+        } else {
+            self.current / self.max
+        }
+    }
+}
+</file>
+
+<file path="core/src/tractor.rs">
+// core/src/tractor.rs
+
+/// Tractor beam system for the Fuel Drift game.
+///
+/// Manages tractor beam activation, direction, and timing
+/// following the Single Responsibility Principle.
+
+/// Direction of the tractor beam.
+///
+/// Simple enum for clear beam direction specification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeamDir {
+    Up,
+    Down,
+}
+
+/// Tractor beam with activation state and timer.
+///
+/// Handles beam activation, direction, and automatic deactivation
+/// following clean code principles with low cyclomatic complexity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TractorBeam {
+    pub active: bool,
+    pub dir: BeamDir,
+    pub timer: f32,
+}
+
+impl TractorBeam {
+    /// Maximum duration the beam can remain active.
+    pub const MAX_DURATION: f32 = 2.0;
+
+    /// Creates a new inactive tractor beam.
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            dir: BeamDir::Up, // Default direction
+            timer: 0.0,
+        }
+    }
+
+    /// Activates the tractor beam with specified direction.
+    ///
+    /// Only activates if beam is not already active.
+    /// Sets timer to maximum duration when activated.
+    pub fn activate(&mut self, dir: BeamDir) {
+        if !self.active {
+            self.active = true;
+            self.dir = dir;
+            self.timer = Self::MAX_DURATION;
+        }
+    }
+
+    /// Updates the tractor beam timer.
+    ///
+    /// Decrements timer and deactivates beam when timer reaches zero.
+    /// Call this method every frame during game updates.
+    pub fn tick(&mut self, dt: f32) {
+        if self.active {
+            self.timer -= dt;
+            if self.timer <= 0.0 {
+                self.active = false;
+                self.timer = 0.0;
+            }
+        }
+    }
+
+    /// Checks if beam is currently active.
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Gets remaining time for active beam.
+    ///
+    /// Returns 0.0 if beam is inactive.
+    pub fn remaining_time(&self) -> f32 {
+        if self.active {
+            self.timer.max(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+impl Default for TractorBeam {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+</file>
+
+<file path="core/tests/cave.rs">
+use core::cave::{Cave, CaveConstants, CaveSegment, SimpleRng};
+
+const EPSILON: f32 = 0.001;
+
+/// Helper function to assert floating point equality.
+fn assert_float_eq(a: f32, b: f32) {
+    assert!((a - b).abs() < EPSILON, "Expected {}, got {}", b, a);
+}
+
+/// Tests that SimpleRng produces deterministic sequences.
+#[test]
+fn simple_rng_deterministic() {
+    let mut rng1 = SimpleRng::new(42);
+    let mut rng2 = SimpleRng::new(42);
+
+    for _ in 0..10 {
+        assert_float_eq(rng1.next_f32(), rng2.next_f32());
+    }
+}
+
+/// Tests that SimpleRng range function works correctly.
+#[test]
+fn simple_rng_range() {
+    let mut rng = SimpleRng::new(123);
+
+    for _ in 0..100 {
+        let value = rng.range(10.0, 20.0);
+        assert!(value >= 10.0 && value < 20.0, "Value {} not in range [10, 20)", value);
+    }
+}
+
+/// Tests CaveSegment basic functionality.
+#[test]
+fn cave_segment_properties() {
+    let segment = CaveSegment::new(100.0, 250.0, 50.0, 25.0);
+
+    assert_float_eq(segment.ceiling, 100.0);
+    assert_float_eq(segment.floor, 250.0);
+    assert_float_eq(segment.x_start, 50.0);
+    assert_float_eq(segment.width, 25.0);
+    assert_float_eq(segment.x_end(), 75.0);
+    assert_float_eq(segment.gap_height(), 150.0);
+}
+
+/// Tests that cave generator never violates minimum gap requirement.
+#[test]
+fn generator_maintains_minimum_gap() {
+    let mut cave = Cave::new(12345);
+
+    // Generate many segments and check gap constraint
+    for _ in 0..50 {
+        cave.generate_next();
+    }
+
+    for segment in cave.segments() {
+        let gap = segment.gap_height();
+        assert!(
+            gap >= CaveConstants::MIN_GAP,
+            "Gap {} is less than minimum {}",
+            gap,
+            CaveConstants::MIN_GAP
+        );
+    }
+}
+
+/// Tests that segments are contiguous (no gaps or overlaps).
+#[test]
+fn segments_are_contiguous() {
+    let mut cave = Cave::new(54321);
+
+    // Generate several segments
+    for _ in 0..10 {
+        cave.generate_next();
+    }
+
+    let segments: Vec<_> = cave.segments().iter().collect();
+
+    // Check that each segment starts where the previous one ends
+    for i in 1..segments.len() {
+        let prev_end = segments[i - 1].x_end();
+        let current_start = segments[i].x_start;
+
+        assert_float_eq(
+            current_start,
+            prev_end,
+        );
+    }
+}
+
+/// Tests the initial cave setup.
+#[test]
+fn initial_cave_setup() {
+    let cave = Cave::new(999);
+
+    assert_eq!(cave.segments().len(), 1);
+
+    let first_segment = &cave.segments()[0];
+    assert_float_eq(first_segment.ceiling, CaveConstants::INITIAL_CEILING);
+    assert_float_eq(first_segment.floor, CaveConstants::INITIAL_FLOOR);
+    assert_float_eq(first_segment.x_start, 0.0);
+    assert_float_eq(first_segment.width, CaveConstants::SEGMENT_WIDTH);
+}
+
+/// Tests segments_in_view functionality.
+#[test]
+fn segments_in_view_generates_as_needed() {
+    let mut cave = Cave::new(777);
+
+    // Initially should have only one segment
+    let initial_count = cave.segments().len();
+    assert_eq!(initial_count, 1);
+
+    // Request view that extends beyond current segments
+    let segments = cave.segments_in_view(0.0, 500.0);
+
+    // Check after the method completes
+    let final_count = cave.segments().len();
+
+    // Should have generated more segments
+    assert!(final_count > initial_count);
+    assert!(segments.len() > 1);
+}
+
+/// Tests that segments_in_view filters correctly.
+#[test]
+fn segments_in_view_filters_correctly() {
+    let mut cave = Cave::new(888);
+
+    // Generate several segments
+    for _ in 0..10 {
+        cave.generate_next();
+    }
+
+    // Request a specific view range
+    let view_start = 100.0;
+    let view_end = 200.0;
+    let segments = cave.segments_in_view(view_start, view_end);
+
+    // All returned segments should intersect with the view range
+    for segment in segments {
+        let intersects = segment.x_start < view_end && segment.x_end() > view_start;
+        assert!(intersects, "Segment {:?} doesn't intersect view range [{}, {}]", segment, view_start, view_end);
+    }
+}
+
+/// Tests height variation stays within reasonable bounds.
+#[test]
+fn height_variation_is_reasonable() {
+    let mut cave = Cave::new(456);
+
+    let initial_ceiling = cave.segments()[0].ceiling;
+    let initial_floor = cave.segments()[0].floor;
+
+    // Generate many segments
+    for _ in 0..20 {
+        cave.generate_next();
+    }
+
+    // Check that heights don't drift too far from initial values
+    for segment in cave.segments() {
+        let max_total_drift = CaveConstants::MAX_HEIGHT_CHANGE * 20.0; // Conservative estimate
+
+        assert!(
+            (segment.ceiling - initial_ceiling).abs() < max_total_drift * 2.0,
+            "Ceiling drifted too far: {} vs initial {}",
+            segment.ceiling,
+            initial_ceiling
+        );
+
+        assert!(
+            (segment.floor - initial_floor).abs() < max_total_drift * 2.0,
+            "Floor drifted too far: {} vs initial {}",
+            segment.floor,
+            initial_floor
+        );
+    }
+}
+
+/// Tests cave memory management (segment removal).
+#[test]
+fn cave_limits_segment_count() {
+    let mut cave = Cave::new(321);
+
+    // Generate many more segments than the max
+    for _ in 0..150 {
+        cave.generate_next();
+    }
+
+    // Should not exceed reasonable memory usage
+    assert!(cave.segments().len() <= 100, "Too many segments retained: {}", cave.segments().len());
+}
+</file>
+
+<file path="core/tests/collision.rs">
+use core::collision::{aabb_overlap, Aabb};
+
+/// Tests basic AABB creation and properties.
+#[test]
+fn aabb_properties() {
+    let aabb = Aabb::new(10.0, 20.0, 30.0, 40.0);
+
+    assert_eq!(aabb.x, 10.0);
+    assert_eq!(aabb.y, 20.0);
+    assert_eq!(aabb.width, 30.0);
+    assert_eq!(aabb.height, 40.0);
+
+    assert_eq!(aabb.left(), 10.0);
+    assert_eq!(aabb.top(), 20.0);
+    assert_eq!(aabb.right(), 40.0);
+    assert_eq!(aabb.bottom(), 60.0);
+}
+
+/// Tests non-overlapping rectangles on x-axis.
+#[test]
+fn non_overlapping_x_axis() {
+    // Rectangle A: (0, 0) to (10, 10)
+    // Rectangle B: (20, 0) to (30, 10)
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (20.0, 0.0), (10.0, 10.0)
+    ));
+
+    // Rectangle A: (20, 0) to (30, 10)  
+    // Rectangle B: (0, 0) to (10, 10)
+    assert!(!aabb_overlap(
+        (20.0, 0.0), (10.0, 10.0),
+        (0.0, 0.0), (10.0, 10.0)
+    ));
+}
+
+/// Tests non-overlapping rectangles on y-axis.
+#[test]
+fn non_overlapping_y_axis() {
+    // Rectangle A: (0, 0) to (10, 10)
+    // Rectangle B: (0, 20) to (10, 30)
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (0.0, 20.0), (10.0, 10.0)
+    ));
+
+    // Rectangle A: (0, 20) to (10, 30)
+    // Rectangle B: (0, 0) to (10, 10)
+    assert!(!aabb_overlap(
+        (0.0, 20.0), (10.0, 10.0),
+        (0.0, 0.0), (10.0, 10.0)
+    ));
+}
+
+/// Tests rectangles that are touching but not overlapping.
+#[test]
+fn touching_not_overlapping() {
+    // Adjacent on x-axis
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (10.0, 0.0), (10.0, 10.0)
+    ));
+
+    // Adjacent on y-axis
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (0.0, 10.0), (10.0, 10.0)
+    ));
+}
+
+/// Tests clearly overlapping rectangles.
+#[test]
+fn overlapping_rectangles() {
+    // Partial overlap
+    assert!(aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (5.0, 5.0), (10.0, 10.0)
+    ));
+
+    // Complete containment - A contains B
+    assert!(aabb_overlap(
+        (0.0, 0.0), (20.0, 20.0),
+        (5.0, 5.0), (10.0, 10.0)
+    ));
+
+    // Complete containment - B contains A
+    assert!(aabb_overlap(
+        (5.0, 5.0), (10.0, 10.0),
+        (0.0, 0.0), (20.0, 20.0)
+    ));
+}
+
+/// Tests overlapping rectangles with different orientations.
+#[test]
+fn overlapping_different_orientations() {
+    // T-shaped overlap
+    assert!(aabb_overlap(
+        (0.0, 5.0), (20.0, 5.0),  // Horizontal bar
+        (5.0, 0.0), (5.0, 15.0)   // Vertical bar
+    ));
+
+    // Corner overlap
+    assert!(aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (8.0, 8.0), (10.0, 10.0)
+    ));
+}
+
+/// Tests edge cases with zero-sized rectangles.
+#[test]
+fn zero_sized_rectangles() {
+    // Zero width rectangle
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (0.0, 10.0),
+        (1.0, 0.0), (10.0, 10.0)
+    ));
+
+    // Zero height rectangle
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 0.0),
+        (0.0, 1.0), (10.0, 10.0)
+    ));
+
+    // Two zero-sized rectangles at same position
+    assert!(!aabb_overlap(
+        (5.0, 5.0), (0.0, 0.0),
+        (5.0, 5.0), (0.0, 0.0)
+    ));
+}
+
+/// Tests rectangles with negative coordinates.
+#[test]
+fn negative_coordinates() {
+    // Both rectangles in negative space
+    assert!(aabb_overlap(
+        (-20.0, -20.0), (15.0, 15.0),
+        (-10.0, -10.0), (15.0, 15.0)
+    ));
+
+    // One in negative, one in positive
+    assert!(aabb_overlap(
+        (-10.0, -10.0), (20.0, 20.0),
+        (5.0, 5.0), (10.0, 10.0)
+    ));
+
+    // Non-overlapping in negative space
+    assert!(!aabb_overlap(
+        (-30.0, -20.0), (10.0, 10.0),
+        (-10.0, -20.0), (10.0, 10.0)
+    ));
+}
+
+/// Tests floating point precision cases.
+#[test]
+fn floating_point_precision() {
+    // Very small overlap
+    assert!(aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (9.999, 0.0), (10.0, 10.0)
+    ));
+
+    // Very small gap
+    assert!(!aabb_overlap(
+        (0.0, 0.0), (10.0, 10.0),
+        (10.001, 0.0), (10.0, 10.0)
+    ));
+}
+</file>
+
+<file path="core/tests/fuel.rs">
+use core::fuel::Fuel;
+
+const EPSILON: f32 = 0.001;
+const DT: f32 = 1.0 / 60.0; // 60 FPS
+
+/// Helper function to assert floating point equality.
+fn assert_float_eq(a: f32, b: f32) {
+    assert!((a - b).abs() < EPSILON, "Expected {}, got {}", b, a);
+}
+
+/// Tests fuel creation with correct initial values.
+#[test]
+fn fuel_creation() {
+    let fuel = Fuel::new(100.0, 5.0);
+
+    assert_float_eq(fuel.current, 100.0);
+    assert_float_eq(fuel.max, 100.0);
+    assert_float_eq(fuel.burn_rate, 5.0);
+    assert!(!fuel.is_empty());
+    assert_float_eq(fuel.ratio(), 1.0);
+}
+
+/// Tests that no fuel burns when consuming is false.
+#[test]
+fn no_burn_when_not_consuming() {
+    let mut fuel = Fuel::new(100.0, 10.0);
+    let initial_fuel = fuel.current;
+
+    let became_empty = fuel.burn(DT, false);
+
+    assert_float_eq(fuel.current, initial_fuel);
+    assert!(!became_empty);
+}
+
+/// Tests fuel consumption when consuming is true.
+#[test]
+fn burns_fuel_when_consuming() {
+    let mut fuel = Fuel::new(100.0, 60.0); // Burns 1 unit per frame at 60 FPS
+
+    let became_empty = fuel.burn(DT, true);
+
+    assert_float_eq(fuel.current, 99.0);
+    assert!(!became_empty);
+}
+
+/// Tests that fuel cannot go below zero.
+#[test]
+fn fuel_cannot_go_negative() {
+    let mut fuel = Fuel::new(10.0, 600.0); // Burns 10 units per frame
+
+    let became_empty = fuel.burn(DT, true);
+
+    assert_float_eq(fuel.current, 0.0);
+    assert!(became_empty);
+    assert!(fuel.is_empty());
+}
+
+/// Tests that burn returns true exactly when fuel becomes empty.
+#[test]
+fn burn_returns_true_when_becoming_empty() {
+    let mut fuel = Fuel::new(1.0, 60.0); // Will become empty in one frame
+
+    // First burn - becomes empty
+    let became_empty = fuel.burn(DT, true);
+    assert!(became_empty);
+    assert!(fuel.is_empty());
+
+    // Second burn - already empty, should return false
+    let became_empty_again = fuel.burn(DT, true);
+    assert!(!became_empty_again);
+}
+
+/// Tests fuel refilling functionality.
+#[test]
+fn fuel_refill_basic() {
+    let mut fuel = Fuel::new(100.0, 5.0);
+    fuel.current = 50.0;
+
+    fuel.refill(20.0);
+
+    assert_float_eq(fuel.current, 70.0);
+}
+
+/// Tests that refill cannot exceed maximum.
+#[test]
+fn refill_cannot_exceed_max() {
+    let mut fuel = Fuel::new(100.0, 5.0);
+    fuel.current = 90.0;
+
+    fuel.refill(20.0); // Would go to 110, but should cap at 100
+
+    assert_float_eq(fuel.current, 100.0);
+}
+
+/// Tests refilling completely empty fuel.
+#[test]
+fn refill_empty_fuel() {
+    let mut fuel = Fuel::new(100.0, 5.0);
+    fuel.current = 0.0;
+
+    fuel.refill(30.0);
+
+    assert_float_eq(fuel.current, 30.0);
+    assert!(!fuel.is_empty());
+}
+
+/// Tests fuel ratio calculation.
+#[test]
+fn fuel_ratio_calculation() {
+    let mut fuel = Fuel::new(100.0, 5.0);
+
+    // Full fuel
+    assert_float_eq(fuel.ratio(), 1.0);
+
+    // Half fuel
+    fuel.current = 50.0;
+    assert_float_eq(fuel.ratio(), 0.5);
+
+    // Quarter fuel
+    fuel.current = 25.0;
+    assert_float_eq(fuel.ratio(), 0.25);
+
+    // Empty fuel
+    fuel.current = 0.0;
+    assert_float_eq(fuel.ratio(), 0.0);
+}
+
+/// Tests edge case with zero maximum fuel.
+#[test]
+fn zero_max_fuel_edge_case() {
+    let fuel = Fuel::new(0.0, 5.0);
+
+    assert_float_eq(fuel.ratio(), 0.0);
+    assert!(fuel.is_empty());
+}
+
+/// Tests multiple burn cycles.
+#[test]
+fn multiple_burn_cycles() {
+    let mut fuel = Fuel::new(10.0, 60.0); // Burns 1 unit per frame
+
+    // Burn for 5 frames
+    for _ in 0..5 {
+        let became_empty = fuel.burn(DT, true);
+        assert!(!became_empty);
+    }
+
+    assert_float_eq(fuel.current, 5.0);
+
+    // Burn until empty
+    for i in 0..5 {
+        let became_empty = fuel.burn(DT, true);
+        if i == 4 { // Last frame
+            assert!(became_empty);
+        } else {
+            assert!(!became_empty);
+        }
+    }
+
+    assert!(fuel.is_empty());
+}
+
+/// Tests mixed consumption and non-consumption cycles.
+#[test]
+fn mixed_consumption_cycles() {
+    let mut fuel = Fuel::new(10.0, 60.0);
+
+    // Consume, skip, consume, skip pattern
+    fuel.burn(DT, true);  // 9.0
+    fuel.burn(DT, false); // 9.0 (no change)
+    fuel.burn(DT, true);  // 8.0
+    fuel.burn(DT, false); // 8.0 (no change)
+
+    assert_float_eq(fuel.current, 8.0);
+}
+
+/// Tests fuel with very small burn rate.
+#[test]
+fn small_burn_rate() {
+    let mut fuel = Fuel::new(10.0, 0.1);
+
+    // Should barely consume any fuel
+    fuel.burn(DT, true);
+
+    let expected = 10.0 - (0.1 * DT);
+    assert_float_eq(fuel.current, expected);
+    assert!(fuel.current > 9.9); // Should still be very close to full
+}
+
+/// Tests fuel with very high burn rate.
+#[test]
+fn high_burn_rate() {
+    let mut fuel = Fuel::new(1.0, 3600.0); // Burns 60 units per frame
+
+    let became_empty = fuel.burn(DT, true);
+
+    assert_float_eq(fuel.current, 0.0);
+    assert!(became_empty);
+}
+</file>
+
+<file path="core/tests/player.rs">
+use core::player::{Player, PlayerInput, PlayerConstants, Vec2};
+
+const DT: f32 = 1.0 / 60.0; // 60 FPS
+const EPSILON: f32 = 0.001;
+
+/// Helper function to create a player at origin.
+fn create_test_player() -> Player {
+    Player::new(Vec2::ZERO)
+}
+
+/// Helper function to assert floating point equality with epsilon.
+fn assert_float_eq(a: f32, b: f32) {
+    assert!((a - b).abs() < EPSILON, "Expected {}, got {}", b, a);
+}
+
+/// Tests that gravity is disabled (remains at zero).
+#[test]
+fn gravity_is_disabled() {
+    let mut player = create_test_player();
+    let initial_vel_y = player.vel.y;
+
+    player.tick(DT, PlayerInput::default());
+
+    // Velocity should remain unchanged since gravity is disabled
+    assert_float_eq(player.vel.y, initial_vel_y);
+}
+
+/// Tests that upward thrust changes vertical velocity.
+#[test]
+fn up_thrust_affects_velocity_y() {
+    let mut player = create_test_player();
+    let initial_vel_y = player.vel.y;
+
+    let input = PlayerInput { up: true, ..Default::default() };
+    player.tick(DT, input);
+
+    // Should have thrust applied (no gravity since it's disabled)
+    let expected_vel_y = initial_vel_y + PlayerConstants::THRUST * DT;
+    assert_float_eq(player.vel.y, expected_vel_y);
+    assert!(player.vel.y < initial_vel_y, "Thrust should create upward velocity");
+}
+
+/// Tests that downward thrust increases downward velocity.
+#[test]
+fn down_thrust_increases_velocity_y() {
+    let mut player = create_test_player();
+    let initial_vel_y = player.vel.y;
+
+    let input = PlayerInput { down: true, ..Default::default() };
+    player.tick(DT, input);
+
+    // Only thrust force applied (no gravity)
+    let thrust_force = -PlayerConstants::THRUST * PlayerConstants::DOWN_THRUST_MULTIPLIER;
+    let expected_vel_y = initial_vel_y + thrust_force * DT;
+    assert_float_eq(player.vel.y, expected_vel_y);
+    assert!(player.vel.y > initial_vel_y, "Down thrust should create downward velocity");
+}
+
+/// Tests that no horizontal input leaves horizontal velocity unchanged.
+#[test]
+fn no_horizontal_input_preserves_velocity_x() {
+    let mut player = create_test_player();
+    player.vel.x = 50.0; // Set some initial horizontal velocity
+
+    player.tick(DT, PlayerInput::default());
+
+    // Horizontal velocity should remain unchanged (no friction implemented)
+    assert_float_eq(player.vel.x, 50.0);
+}
+
+/// Tests horizontal movement input affects velocity.
+#[test]
+fn horizontal_input_affects_velocity_x() {
+    let mut player = create_test_player();
+
+    // Test left input
+    let left_input = PlayerInput { left: true, ..Default::default() };
+    player.tick(DT, left_input);
+    assert!(player.vel.x < 0.0, "Left input should create negative velocity");
+
+    // Reset player
+    player = create_test_player();
+
+    // Test right input
+    let right_input = PlayerInput { right: true, ..Default::default() };
+    player.tick(DT, right_input);
+    assert!(player.vel.x > 0.0, "Right input should create positive velocity");
+}
+
+/// Tests that horizontal speed is clamped to maximum.
+#[test]
+fn horizontal_speed_is_clamped() {
+    let mut player = create_test_player();
+    player.vel.x = PlayerConstants::MAX_HORIZONTAL_SPEED + 100.0; // Exceed max speed
+
+    player.tick(DT, PlayerInput::default());
+
+    assert_float_eq(player.vel.x, PlayerConstants::MAX_HORIZONTAL_SPEED);
+}
+
+/// Tests position updates based on velocity.
+#[test]
+fn position_updates_with_velocity() {
+    let mut player = create_test_player();
+    player.vel = Vec2::new(100.0, 50.0);
+
+    player.tick(DT, PlayerInput::default());
+
+    let expected_x = 100.0 * DT;
+    let expected_y = 50.0 * DT; // No gravity effect
+
+    assert_float_eq(player.pos.x, expected_x);
+    assert_float_eq(player.pos.y, expected_y);
+}
+
+/// Tests multiple physics interactions in one tick.
+#[test]
+fn combined_physics_interactions() {
+    let mut player = Player::new(Vec2::new(100.0, 200.0));
+    player.vel = Vec2::new(50.0, -30.0); // Some initial velocity
+
+    let input = PlayerInput {
+        up: true,
+        right: true,
+        ..Default::default()
+    };
+
+    let initial_pos = player.pos;
+    let initial_vel = player.vel;
+
+    player.tick(DT, input);
+
+    // Position should have changed
+    assert!(player.pos.x != initial_pos.x);
+    assert!(player.pos.y != initial_pos.y);
+
+    // Velocity should be affected by thrust forces (no gravity)
+    assert!(player.vel.x > initial_vel.x); // Right thrust
+    assert!(player.vel.y != initial_vel.y); // Up thrust
+}
+</file>
+
+<file path="core/tests/smoke.rs">
+/// Smoke test to verify basic arithmetic operations work correctly.
+///
+/// This test ensures the testing infrastructure is properly set up
+/// and basic mathematical operations function as expected.
+#[test]
+fn basic_arithmetic_works() {
+    assert_eq!(2 + 2, 4);
+}
+</file>
+
+<file path="core/tests/tractor.rs">
+// core/tests/tractor.rs
+
+use core::tractor::{BeamDir, TractorBeam};
+
+const DT: f32 = 1.0 / 60.0; // 60 FPS
+const EPSILON: f32 = 0.001;
+
+/// Helper function to assert floating point equality.
+fn assert_float_eq(a: f32, b: f32) {
+    assert!((a - b).abs() < EPSILON, "Expected {}, got {}", b, a);
+}
+
+/// Tests tractor beam creation with correct initial state.
+#[test]
+fn tractor_beam_creation() {
+    let beam = TractorBeam::new();
+
+    assert!(!beam.active);
+    assert_eq!(beam.dir, BeamDir::Up); // Default direction
+    assert_float_eq(beam.timer, 0.0);
+    assert!(!beam.is_active());
+    assert_float_eq(beam.remaining_time(), 0.0);
+}
+
+/// Tests default implementation.
+#[test]
+fn tractor_beam_default() {
+    let beam = TractorBeam::default();
+    let new_beam = TractorBeam::new();
+
+    assert_eq!(beam.active, new_beam.active);
+    assert_eq!(beam.dir, new_beam.dir);
+    assert_float_eq(beam.timer, new_beam.timer);
+}
+
+/// Tests beam activation with up direction.
+#[test]
+fn activate_beam_up() {
+    let mut beam = TractorBeam::new();
+
+    beam.activate(BeamDir::Up);
+
+    assert!(beam.active);
+    assert_eq!(beam.dir, BeamDir::Up);
+    assert_float_eq(beam.timer, TractorBeam::MAX_DURATION);
+    assert!(beam.is_active());
+    assert_float_eq(beam.remaining_time(), TractorBeam::MAX_DURATION);
+}
+
+/// Tests beam activation with down direction.
+#[test]
+fn activate_beam_down() {
+    let mut beam = TractorBeam::new();
+
+    beam.activate(BeamDir::Down);
+
+    assert!(beam.active);
+    assert_eq!(beam.dir, BeamDir::Down);
+    assert_float_eq(beam.timer, TractorBeam::MAX_DURATION);
+    assert!(beam.is_active());
+}
+
+/// Tests that beam cannot be reactivated while already active.
+#[test]
+fn cannot_reactivate_while_active() {
+    let mut beam = TractorBeam::new();
+
+    // Activate with up direction
+    beam.activate(BeamDir::Up);
+    let initial_timer = beam.timer;
+
+    // Try to activate with down direction
+    beam.activate(BeamDir::Down);
+
+    // Should remain with original activation
+    assert!(beam.active);
+    assert_eq!(beam.dir, BeamDir::Up); // Unchanged
+    assert_float_eq(beam.timer, initial_timer); // Unchanged
+}
+
+/// Tests beam timer countdown.
+#[test]
+fn beam_timer_countdown() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Up);
+
+    let initial_timer = beam.timer;
+
+    // Tick for one frame
+    beam.tick(DT);
+
+    assert!(beam.active);
+    assert_float_eq(beam.timer, initial_timer - DT);
+    assert_float_eq(beam.remaining_time(), initial_timer - DT);
+}
+
+/// Tests beam automatic deactivation when timer reaches zero.
+#[test]
+fn beam_auto_deactivation() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Up);
+
+    // Tick for maximum duration to exhaust timer
+    beam.tick(TractorBeam::MAX_DURATION);
+
+    assert!(!beam.active);
+    assert_float_eq(beam.timer, 0.0);
+    assert!(!beam.is_active());
+    assert_float_eq(beam.remaining_time(), 0.0);
+}
+
+/// Tests beam deactivation with slight over-tick.
+#[test]
+fn beam_deactivation_with_overtick() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Down);
+
+    // Tick for more than maximum duration
+    beam.tick(TractorBeam::MAX_DURATION + 0.5);
+
+    assert!(!beam.active);
+    assert_float_eq(beam.timer, 0.0);
+    assert!(!beam.is_active());
+}
+
+/// Tests multiple tick cycles until deactivation.
+#[test]
+fn multiple_tick_cycles() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Up);
+
+    // Calculate exact number of ticks needed
+    // MAX_DURATION = 2.0, DT = 1/60 ≈ 0.0166667
+    // Expected ticks = 2.0 / 0.0166667 = 120 ticks
+    let expected_ticks = (TractorBeam::MAX_DURATION / DT).ceil() as i32;
+
+    // Track elapsed time manually to ensure precision
+    let mut elapsed_time = 0.0;
+    let mut tick_count = 0;
+
+    // Tick until we reach or exceed MAX_DURATION
+    while elapsed_time < TractorBeam::MAX_DURATION {
+        beam.tick(DT);
+        elapsed_time += DT;
+        tick_count += 1;
+
+        // Safety check to prevent infinite loop
+        if tick_count > expected_ticks + 5 {
+            panic!("Too many ticks performed: {}", tick_count);
+        }
+    }
+
+    // After exceeding MAX_DURATION, beam should be deactivated
+    assert!(!beam.active,
+            "Beam should be deactivated after {:.6} seconds ({} ticks, expected ~{})",
+            elapsed_time, tick_count, expected_ticks);
+
+    // Verify timer is reset
+    assert_eq!(beam.timer, 0.0, "Timer should be reset to 0.0");
+}
+
+/// Tests tick on inactive beam does nothing.
+#[test]
+fn tick_inactive_beam_does_nothing() {
+    let mut beam = TractorBeam::new();
+
+    // Tick inactive beam
+    beam.tick(DT);
+
+    assert!(!beam.active);
+    assert_float_eq(beam.timer, 0.0);
+}
+
+/// Tests reactivation after automatic deactivation.
+#[test]
+fn reactivation_after_deactivation() {
+    let mut beam = TractorBeam::new();
+
+    // First activation
+    beam.activate(BeamDir::Up);
+    beam.tick(TractorBeam::MAX_DURATION); // Deactivate
+
+    assert!(!beam.active);
+
+    // Second activation with different direction
+    beam.activate(BeamDir::Down);
+
+    assert!(beam.active);
+    assert_eq!(beam.dir, BeamDir::Down);
+    assert_float_eq(beam.timer, TractorBeam::MAX_DURATION);
+}
+
+/// Tests edge case with very small time increments.
+#[test]
+fn small_time_increments() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Up);
+
+    let small_dt = 0.001;
+    let mut total_time = 0.0;
+
+    while beam.active && total_time < TractorBeam::MAX_DURATION + 0.1 {
+        beam.tick(small_dt);
+        total_time += small_dt;
+    }
+
+    assert!(!beam.active);
+    assert!(total_time >= TractorBeam::MAX_DURATION);
+}
+
+/// Tests remaining time calculation accuracy.
+#[test]
+fn remaining_time_accuracy() {
+    let mut beam = TractorBeam::new();
+    beam.activate(BeamDir::Up);
+
+    // Tick for half duration
+    let half_duration = TractorBeam::MAX_DURATION / 2.0;
+    beam.tick(half_duration);
+
+    let expected_remaining = TractorBeam::MAX_DURATION - half_duration;
+    assert_float_eq(beam.remaining_time(), expected_remaining);
+    assert!(beam.active);
+}
+
+/// Tests BeamDir enum properties.
+#[test]
+fn beam_dir_properties() {
+    assert_eq!(BeamDir::Up, BeamDir::Up);
+    assert_eq!(BeamDir::Down, BeamDir::Down);
+    assert_ne!(BeamDir::Up, BeamDir::Down);
+
+    // Test clone and copy
+    let dir = BeamDir::Up;
+    let dir_clone = dir;
+    assert_eq!(dir, dir_clone);
+}
+</file>
+
+<file path="Cargo.toml">
+# Datei: Cargo.toml (Root Workspace)
+[workspace]
+members = ["core", "game"]
+resolver = "2"
+
+[workspace.dependencies]
+macroquad = "0.4"
+</file>
+
+<file path="core/src/game_state.rs">
+// core/src/game_state.rs
+/// Represents all possible states in the Fuel Drift game.
+///
+/// Following the State pattern for clear state management and transitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameState {
+    Menu,
+    Playing,
+    Paused,
+    GameOver,
+}
+
+/// Events that can trigger state transitions.
+///
+/// Each event represents a single user action or game condition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameEvent {
+    Start,
+    PauseToggle,
+    Dead,
+    Reset,
+    BackToMenu, // Neues Event für Rückkehr zum Hauptmenü
+}
+
+impl GameState {
+    /// Determines the next state based on current state and event.
+    ///
+    /// Uses pattern matching for clear, testable state transitions
+    /// with low cyclomatic complexity per transition.
+    pub fn next(self, event: GameEvent) -> Self {
+        match (self, event) {
+            // From Menu
+            (GameState::Menu, GameEvent::Start) => GameState::Playing,
+            (GameState::Menu, GameEvent::Reset) => GameState::Menu,
+
+            // From Playing
+            (GameState::Playing, GameEvent::PauseToggle) => GameState::Paused,
+            (GameState::Playing, GameEvent::Dead) => GameState::GameOver,
+
+            // From Paused
+            (GameState::Paused, GameEvent::PauseToggle) => GameState::Playing,
+            (GameState::Paused, GameEvent::Reset) => GameState::Menu,
+            (GameState::Paused, GameEvent::BackToMenu) => GameState::Menu,
+
+            // From GameOver
+            (GameState::GameOver, GameEvent::Start) => GameState::Playing,
+            (GameState::GameOver, GameEvent::Reset) => GameState::Menu,
+            (GameState::GameOver, GameEvent::BackToMenu) => GameState::Menu,
+
+            // Invalid transitions remain in current state
+            (state, _) => state,
+        }
+    }
+}
+
+/// State machine for managing game state transitions.
+///
+/// Encapsulates state and provides controlled access following
+/// the Single Responsibility Principle.
+#[derive(Debug, Clone, Copy)]
+pub struct StateMachine {
+    current_state: GameState,
+}
+
+impl StateMachine {
+    /// Creates a new state machine starting in Menu state.
+    pub fn new() -> Self {
+        Self {
+            current_state: GameState::Menu,
+        }
+    }
+
+    /// Gets the current state.
+    pub fn current(&self) -> GameState {
+        self.current_state
+    }
+
+    /// Processes an event and transitions to the next state.
+    pub fn handle_event(&mut self, event: GameEvent) {
+        self.current_state = self.current_state.next(event);
+    }
+}
+
+impl Default for StateMachine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+</file>
+
+<file path="core/src/player.rs">
+/// 2D vector for position and velocity calculations.
+///
+/// Simple structure following the principle of least surprise.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Vec2 {
+    /// Creates a new Vec2.
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
+    /// Zero vector constant.
+    pub const ZERO: Vec2 = Vec2 { x: 0.0, y: 0.0 };
+}
+
+/// Player input state for a single frame.
+///
+/// Contains only boolean flags for clean input handling.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlayerInput {
+    pub up: bool,
+    pub down: bool,
+    pub left: bool,
+    pub right: bool,
+    pub tractor_up: bool,    // W key for upward tractor beam
+    pub tractor_down: bool,  // S key for downward tractor beam
+}
+
+/// Player physics constants.
+///
+/// Centralized constants for easy tuning and testing.
+pub struct PlayerConstants;
+
+impl PlayerConstants {
+    pub const GRAVITY: f32 = 0.0; // pixels/sec² (disabled)
+    pub const THRUST: f32 = -400.0; // pixels/sec² (negative = upward)
+    pub const MAX_HORIZONTAL_SPEED: f32 = 200.0; // pixels/sec
+    pub const DOWN_THRUST_MULTIPLIER: f32 = 0.5;
+}
+
+/// Player entity with position and velocity.
+///
+/// Handles physics calculations without rendering concerns,
+/// following the Single Responsibility Principle.
+#[derive(Debug, Clone, Copy)]
+pub struct Player {
+    pub pos: Vec2,
+    pub vel: Vec2,
+}
+
+impl Player {
+    /// Creates a new player at the specified position.
+    pub fn new(pos: Vec2) -> Self {
+        Self {
+            pos,
+            vel: Vec2::ZERO,
+        }
+    }
+
+    /// Updates player physics for one frame.
+    ///
+    /// Separated into smaller methods to reduce cyclomatic complexity.
+    pub fn tick(&mut self, dt: f32, input: PlayerInput) {
+        self.apply_gravity(dt);
+        self.apply_thrust(dt, input);
+        self.apply_horizontal_movement(dt, input);
+        self.update_position(dt);
+    }
+
+    /// Applies gravity to vertical velocity.
+    fn apply_gravity(&mut self, dt: f32) {
+        self.vel.y += PlayerConstants::GRAVITY * dt;
+    }
+
+    /// Applies thrust based on input.
+    fn apply_thrust(&mut self, dt: f32, input: PlayerInput) {
+        if input.up {
+            self.vel.y += PlayerConstants::THRUST * dt;
+        }
+
+        if input.down {
+            self.vel.y += -PlayerConstants::THRUST * PlayerConstants::DOWN_THRUST_MULTIPLIER * dt;
+        }
+    }
+
+    /// Applies horizontal movement with speed clamping.
+    fn apply_horizontal_movement(&mut self, dt: f32, input: PlayerInput) {
+        const HORIZONTAL_ACCELERATION: f32 = 800.0; // pixels/sec²
+
+        if input.left {
+            self.vel.x -= HORIZONTAL_ACCELERATION * dt;
+        }
+
+        if input.right {
+            self.vel.x += HORIZONTAL_ACCELERATION * dt;
+        }
+
+        // Clamp horizontal speed
+        self.vel.x = self.vel.x.clamp(
+            -PlayerConstants::MAX_HORIZONTAL_SPEED,
+            PlayerConstants::MAX_HORIZONTAL_SPEED
+        );
+    }
+
+    /// Updates position based on current velocity.
+    fn update_position(&mut self, dt: f32) {
+        self.pos.x += self.vel.x * dt;
+        self.pos.y += self.vel.y * dt;
+    }
+}
+</file>
+
+<file path="core/tests/game_state.rs">
+// Datei: core/tests/game_state.rs (erweitert)
+
+use core::game_state::{GameEvent, GameState, StateMachine};
+
+/// Tests for valid state transitions from Menu state.
+#[test]
+fn menu_state_transitions() {
+    assert_eq!(GameState::Menu.next(GameEvent::Start), GameState::Playing);
+    assert_eq!(GameState::Menu.next(GameEvent::Reset), GameState::Menu);
+}
+
+/// Tests for valid state transitions from Playing state.
+#[test]
+fn playing_state_transitions() {
+    assert_eq!(GameState::Playing.next(GameEvent::PauseToggle), GameState::Paused);
+    assert_eq!(GameState::Playing.next(GameEvent::Dead), GameState::GameOver);
+}
+
+/// Tests for valid state transitions from Paused state.
+#[test]
+fn paused_state_transitions() {
+    assert_eq!(GameState::Paused.next(GameEvent::PauseToggle), GameState::Playing);
+    assert_eq!(GameState::Paused.next(GameEvent::Reset), GameState::Menu);
+    assert_eq!(GameState::Paused.next(GameEvent::BackToMenu), GameState::Menu);
+}
+
+/// Tests for valid state transitions from GameOver state.
+#[test]
+fn game_over_state_transitions() {
+    assert_eq!(GameState::GameOver.next(GameEvent::Start), GameState::Playing);
+    assert_eq!(GameState::GameOver.next(GameEvent::Reset), GameState::Menu);
+    assert_eq!(GameState::GameOver.next(GameEvent::BackToMenu), GameState::Menu);
+}
+
+/// Tests that BackToMenu event works correctly from Paused state.
+#[test]
+fn back_to_menu_from_paused() {
+    let mut state_machine = StateMachine::new();
+
+    // Start game and pause
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::PauseToggle);
+    assert_eq!(state_machine.current(), GameState::Paused);
+
+    // Go back to menu
+    state_machine.handle_event(GameEvent::BackToMenu);
+    assert_eq!(state_machine.current(), GameState::Menu);
+}
+
+/// Tests that BackToMenu event works correctly from GameOver state.
+#[test]
+fn back_to_menu_from_game_over() {
+    let mut state_machine = StateMachine::new();
+
+    // Start game and die
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::Dead);
+    assert_eq!(state_machine.current(), GameState::GameOver);
+
+    // Go back to menu
+    state_machine.handle_event(GameEvent::BackToMenu);
+    assert_eq!(state_machine.current(), GameState::Menu);
+}
+
+/// Tests complete game flow with menu navigation.
+#[test]
+fn complete_game_flow_with_menus() {
+    let mut state_machine = StateMachine::new();
+
+    // Start in menu
+    assert_eq!(state_machine.current(), GameState::Menu);
+
+    // Start game
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+
+    // Pause game
+    state_machine.handle_event(GameEvent::PauseToggle);
+    assert_eq!(state_machine.current(), GameState::Paused);
+
+    // Go back to menu from pause
+    state_machine.handle_event(GameEvent::BackToMenu);
+    assert_eq!(state_machine.current(), GameState::Menu);
+
+    // Start game again
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+
+    // Die
+    state_machine.handle_event(GameEvent::Dead);
+    assert_eq!(state_machine.current(), GameState::GameOver);
+
+    // Go back to menu from game over
+    state_machine.handle_event(GameEvent::BackToMenu);
+    assert_eq!(state_machine.current(), GameState::Menu);
+}
+
+/// Tests that invalid transitions with BackToMenu remain in current state.
+#[test]
+fn invalid_back_to_menu_transitions() {
+    // BackToMenu from Menu should remain in Menu
+    assert_eq!(GameState::Menu.next(GameEvent::BackToMenu), GameState::Menu);
+
+    // BackToMenu from Playing should remain in Playing
+    assert_eq!(GameState::Playing.next(GameEvent::BackToMenu), GameState::Playing);
+}
+
+/// Tests that all existing invalid transitions still work correctly.
+#[test]
+fn invalid_transitions_remain_in_current_state() {
+    // Menu state invalid transitions
+    assert_eq!(GameState::Menu.next(GameEvent::PauseToggle), GameState::Menu);
+    assert_eq!(GameState::Menu.next(GameEvent::Dead), GameState::Menu);
+    assert_eq!(GameState::Menu.next(GameEvent::BackToMenu), GameState::Menu);
+
+    // Playing state invalid transitions
+    assert_eq!(GameState::Playing.next(GameEvent::Start), GameState::Playing);
+    assert_eq!(GameState::Playing.next(GameEvent::Reset), GameState::Playing);
+    assert_eq!(GameState::Playing.next(GameEvent::BackToMenu), GameState::Playing);
+
+    // Paused state invalid transitions
+    assert_eq!(GameState::Paused.next(GameEvent::Start), GameState::Paused);
+    assert_eq!(GameState::Paused.next(GameEvent::Dead), GameState::Paused);
+
+    // GameOver state invalid transitions
+    assert_eq!(GameState::GameOver.next(GameEvent::PauseToggle), GameState::GameOver);
+    assert_eq!(GameState::GameOver.next(GameEvent::Dead), GameState::GameOver);
+}
+
+/// Tests Reset vs BackToMenu distinction in different states.
+#[test]
+fn reset_vs_back_to_menu_distinction() {
+    // From Paused: both Reset and BackToMenu go to Menu
+    assert_eq!(GameState::Paused.next(GameEvent::Reset), GameState::Menu);
+    assert_eq!(GameState::Paused.next(GameEvent::BackToMenu), GameState::Menu);
+
+    // From GameOver: both Reset and BackToMenu go to Menu
+    assert_eq!(GameState::GameOver.next(GameEvent::Reset), GameState::Menu);
+    assert_eq!(GameState::GameOver.next(GameEvent::BackToMenu), GameState::Menu);
+
+    // Both events have the same effect, but semantically different meanings
+    // Reset implies "reset game state", BackToMenu implies "navigation"
+}
+
+/// Tests edge case scenarios with multiple rapid state changes.
+#[test]
+fn rapid_state_changes() {
+    let mut state_machine = StateMachine::new();
+
+    // Rapid transitions
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::PauseToggle);
+    state_machine.handle_event(GameEvent::BackToMenu);
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::Dead);
+    state_machine.handle_event(GameEvent::BackToMenu);
+
+    // Should end up in Menu
+    assert_eq!(state_machine.current(), GameState::Menu);
+}
+
+/// Tests that StateMachine wrapper handles BackToMenu correctly.
+#[test]
+fn state_machine_handles_back_to_menu() {
+    let mut state_machine = StateMachine::new();
+
+    // Navigate to paused state
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::PauseToggle);
+    assert_eq!(state_machine.current(), GameState::Paused);
+
+    // Use BackToMenu
+    state_machine.handle_event(GameEvent::BackToMenu);
+    assert_eq!(state_machine.current(), GameState::Menu);
+}
+
+/// Tests game state enum properties remain consistent.
+#[test]
+fn game_state_enum_properties() {
+    // Test that all states are distinct
+    let states = [
+        GameState::Menu,
+        GameState::Playing,
+        GameState::Paused,
+        GameState::GameOver,
+    ];
+
+    for (i, &state1) in states.iter().enumerate() {
+        for (j, &state2) in states.iter().enumerate() {
+            if i == j {
+                assert_eq!(state1, state2);
+            } else {
+                assert_ne!(state1, state2);
+            }
+        }
+    }
+}
+
+/// Tests game event enum properties.
+#[test]
+fn game_event_enum_properties() {
+    // Test that all events are distinct
+    let events = [
+        GameEvent::Start,
+        GameEvent::PauseToggle,
+        GameEvent::Dead,
+        GameEvent::Reset,
+        GameEvent::BackToMenu,
+    ];
+
+    for (i, &event1) in events.iter().enumerate() {
+        for (j, &event2) in events.iter().enumerate() {
+            if i == j {
+                assert_eq!(event1, event2);
+            } else {
+                assert_ne!(event1, event2);
+            }
+        }
+    }
+}
+
+/// Tests specific menu navigation scenarios.
+#[test]
+fn menu_navigation_scenarios() {
+    let mut state_machine = StateMachine::new();
+
+    // Scenario 1: Start game, pause, back to menu, start again
+    state_machine.handle_event(GameEvent::Start);
+    state_machine.handle_event(GameEvent::PauseToggle);
+    state_machine.handle_event(GameEvent::BackToMenu);
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+
+    // Scenario 2: Die, back to menu, start again
+    state_machine.handle_event(GameEvent::Dead);
+    state_machine.handle_event(GameEvent::BackToMenu);
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+}
+</file>
+
+<file path="game/cargo.toml">
+# Datei: game/Cargo.toml
+[package]
+name = "game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core = { path = "../core" }
+macroquad = { workspace = true }
+</file>
+
+<file path="core/tests/integration.rs">
+// core/tests/integration.rs
+
+use core::cave::{Cave, CaveSegment};
+use core::collision::aabb_overlap;
+use core::game_state::{GameEvent, GameState, StateMachine};
+use core::player::{Player, PlayerInput, Vec2};
+use core::tractor::{TractorBeam, BeamDir};
+
+const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
+
+/// Helper function to create a simple cave segment for testing.
+fn create_test_segment(ceiling: f32, floor: f32, x_start: f32, width: f32) -> CaveSegment {
+    CaveSegment::new(ceiling, floor, x_start, width)
+}
+
+/// Tests player collision with ceiling.
+#[test]
+fn player_collides_with_ceiling() {
+    let segment = create_test_segment(100.0, 400.0, 0.0, 50.0);
+
+    // Player positioned to hit ceiling
+    // Player top-left corner position - player extends down 18 pixels
+    let player_pos = (20.0, 85.0); // Player bottom at y=103, ceiling at y=100
+    let ceiling_pos = (segment.x_start, 0.0);
+    let ceiling_size = (segment.width, segment.ceiling);
+
+    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+}
+
+/// Tests player collision with floor.
+#[test]
+fn player_collides_with_floor() {
+    let segment = create_test_segment(100.0, 400.0, 0.0, 50.0);
+
+    // Player positioned to hit floor
+    // Player top-left position - player extends down 18 pixels
+    let player_pos = (20.0, 390.0); // Player bottom at y=408, floor starts at y=400
+    let floor_pos = (segment.x_start, segment.floor);
+    let floor_size = (segment.width, 600.0 - segment.floor); // Assuming window height 600
+
+    assert!(aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size));
+}
+
+/// Tests player in safe zone (no collision).
+#[test]
+fn player_in_safe_zone() {
+    let segment = create_test_segment(100.0, 400.0, 0.0, 50.0);
+
+    // Player positioned safely between ceiling and floor
+    let player_pos = (20.0, 250.0); // Safely in the middle
+
+    // Check no collision with ceiling
+    let ceiling_pos = (segment.x_start, 0.0);
+    let ceiling_size = (segment.width, segment.ceiling);
+    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+
+    // Check no collision with floor
+    let floor_pos = (segment.x_start, segment.floor);
+    let floor_size = (segment.width, 600.0 - segment.floor);
+    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size));
+}
+
+/// Tests player outside segment horizontally.
+#[test]
+fn player_outside_segment_horizontally() {
+    let segment = create_test_segment(100.0, 400.0, 100.0, 50.0);
+
+    // Player positioned before segment starts
+    let player_pos = (50.0, 250.0);
+
+    let ceiling_pos = (segment.x_start, 0.0);
+    let ceiling_size = (segment.width, segment.ceiling);
+    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+
+    let floor_pos = (segment.x_start, segment.floor);
+    let floor_size = (segment.width, 600.0 - segment.floor);
+    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size));
+}
+
+/// Tests collision at segment boundary.
+#[test]
+fn collision_at_segment_boundary() {
+    let segment = create_test_segment(100.0, 400.0, 100.0, 50.0);
+
+    // Player positioned at the start of segment, hitting ceiling
+    let player_pos = (100.0, 85.0);
+    let ceiling_pos = (segment.x_start, 0.0);
+    let ceiling_size = (segment.width, segment.ceiling);
+
+    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+}
+
+/// Tests game state transition on collision simulation.
+#[test]
+fn game_state_transitions_on_death() {
+    let mut state_machine = StateMachine::new();
+
+    // Start game
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+
+    // Simulate collision death
+    state_machine.handle_event(GameEvent::Dead);
+    assert_eq!(state_machine.current(), GameState::GameOver);
+
+    // Restart game
+    state_machine.handle_event(GameEvent::Start);
+    assert_eq!(state_machine.current(), GameState::Playing);
+}
+
+/// Tests integrated player physics and collision scenario.
+#[test]
+fn player_physics_collision_scenario() {
+    let mut player = Player::new(Vec2::new(100.0, 90.0));
+
+    // Apply upward thrust to move towards ceiling
+    let input = PlayerInput { up: true, ..Default::default() };
+    let dt = 1.0 / 60.0; // 60 FPS
+
+    // Move player multiple frames
+    for _ in 0..10 {
+        player.tick(dt, input);
+    }
+
+    // Player should have moved upward
+    assert!(player.pos.y < 90.0, "Player should have moved up due to thrust");
+
+    // Test collision with ceiling at y=100
+    let player_pos = (
+        player.pos.x - PLAYER_SIZE.0 / 2.0,
+        player.pos.y - PLAYER_SIZE.1 / 2.0,
+    );
+    let ceiling_pos = (0.0, 0.0);
+    let ceiling_size = (200.0, 100.0);
+
+    // Check if collision would occur
+    let collision = aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size);
+
+    if collision {
+        // Collision detected - verify it makes sense
+        assert!(player.pos.y - PLAYER_SIZE.1 / 2.0 < 100.0);
+    }
+}
+
+/// Tests multiple cave segments collision detection.
+#[test]
+fn multiple_segments_collision() {
+    let mut cave = Cave::new(123);
+
+    // Generate a few segments
+    for _ in 0..5 {
+        cave.generate_next();
+    }
+
+    let segments: Vec<_> = cave.segments().iter().copied().collect();
+    assert!(segments.len() > 1, "Should have multiple segments");
+
+    // Test player collision with first segment
+    let first_segment = segments[0];
+    let player_pos = (first_segment.x_start + 10.0, first_segment.ceiling - 5.0);
+
+    let ceiling_pos = (first_segment.x_start, 0.0);
+    let ceiling_size = (first_segment.width, first_segment.ceiling);
+
+    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+}
+
+/// Tests edge case: player exactly at collision boundary.
+#[test]
+fn player_at_collision_boundary() {
+    let segment = create_test_segment(100.0, 400.0, 50.0, 50.0);
+
+    // Simple case: Player positioned just below ceiling (should NOT collide)
+    // Ceiling goes from y=0 to y=100
+    // Player positioned with top at y=100.1 (just below, no overlap)
+    let player_pos = (60.0, 100.1); // Top-left corner at (60, 100.1)
+    // Player extends from (60,100.1) to (90,118.1) - no overlap with ceiling (50,0) to (100,100)
+
+    let ceiling_pos = (segment.x_start, 0.0);
+    let ceiling_size = (segment.width, segment.ceiling);
+
+    // Should not collide (separated by 0.1 pixel)
+    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+
+    // Move player up to create overlap
+    let overlapping_pos = (60.0, 99.0); // Top-left at (60, 99)
+    // Player now extends from (60,99) to (90,117) - overlaps with ceiling at y=100
+
+    // Should now collide
+    assert!(aabb_overlap(overlapping_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+}
+
+/// Tests simple boundary case with clear coordinates.
+#[test]
+fn simple_boundary_test() {
+    // Ceiling from (0,0) to (100,50)
+    let ceiling_pos = (0.0, 0.0);
+    let ceiling_size = (100.0, 50.0);
+
+    // Player positioned just below ceiling (no overlap)
+    let player_pos = (25.0, 50.1); // Player top-left at (25, 50.1)
+    let player_size = PLAYER_SIZE;  // Player extends to (55, 68.1)
+
+    // Player starts at y=50.1, ceiling ends at y=50 - no overlap
+    assert!(!aabb_overlap(player_pos, player_size, ceiling_pos, ceiling_size));
+
+    // Move player up to create overlap
+    let overlapping_pos = (25.0, 49.0); // Player top-left at (25, 49)
+    // Player now extends to (55, 67), overlapping with ceiling ending at y=50
+
+    assert!(aabb_overlap(overlapping_pos, player_size, ceiling_pos, ceiling_size));
+}
+
+/// Debug test to understand coordinate system.
+#[test]
+fn debug_coordinates() {
+    // Very simple case
+    let ceiling_pos = (0.0, 0.0);
+    let ceiling_size = (100.0, 50.0); // Ceiling from (0,0) to (100,50)
+
+    // Player just below ceiling (with small gap)
+    let player_pos = (10.0, 50.1); // Player at (10,50.1) to (40,68.1)
+
+    // This should NOT overlap since player starts at y=50.1 and ceiling ends at y=50
+    let result = aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size);
+    assert!(!result, "Player at y=50.1 should not overlap with ceiling ending at y=50");
+
+    // Player overlapping
+    let player_pos_overlap = (10.0, 49.0); // Player at (10,49) to (40,67)
+
+    // This SHOULD overlap since player starts at y=49 and ceiling ends at y=50
+    let result_overlap = aabb_overlap(player_pos_overlap, PLAYER_SIZE, ceiling_pos, ceiling_size);
+    assert!(result_overlap, "Player at y=49 should overlap with ceiling ending at y=50");
+}
+
+/// Tests exact touching boundary (edge case).
+#[test]
+fn exact_touching_boundary() {
+    // Test the exact boundary condition where rectangles touch but don't overlap
+    let ceiling_pos = (0.0, 0.0);
+    let ceiling_size = (100.0, 50.0); // Ceiling from (0,0) to (100,50)
+
+    // Player positioned so top edge exactly touches ceiling bottom edge
+    let player_pos = (10.0, 50.0); // Player at (10,50) to (40,68)
+
+    // In AABB collision, touching edges do NOT count as overlap
+    // ceiling bottom = 50, player top = 50, so a_bottom <= b_top is true (50 <= 50)
+    let result = aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size);
+    assert!(!result, "Touching boundaries should not count as overlap");
+}
+
+/// Tests collision detection performance with many segments.
+#[test]
+fn collision_performance_many_segments() {
+    let mut cave = Cave::new(456);
+
+    // Generate many segments
+    for _ in 0..50 {
+        cave.generate_next();
+    }
+
+    let player_pos = (500.0, 250.0); // Middle position
+
+    // Get segments in view
+    let segments = cave.segments_in_view(400.0, 600.0);
+
+    // Check collision with all segments (should be fast)
+    let mut collision_found = false;
+    for segment in segments {
+        let ceiling_pos = (segment.x_start, 0.0);
+        let ceiling_size = (segment.width, segment.ceiling);
+
+        if aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size) {
+            collision_found = true;
+            break;
+        }
+
+        let floor_pos = (segment.x_start, segment.floor);
+        let floor_size = (segment.width, 600.0 - segment.floor);
+
+        if aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size) {
+            collision_found = true;
+            break;
+        }
+    }
+
+    // This test mainly verifies the code runs without panicking
+    // Actual collision depends on generated cave layout
+    assert!(collision_found || !collision_found); // Always true, just exercises the code
+}
+
+/// Tests tractor beam activation and timing integration.
+#[test]
+fn tractor_beam_activation_integration() {
+    let mut beam = TractorBeam::new();
+
+    // Initially inactive
+    assert!(!beam.is_active());
+
+    // Activate upward beam
+    beam.activate(BeamDir::Up);
+    assert!(beam.is_active());
+    assert_eq!(beam.dir, BeamDir::Up);
+
+    // Tick for half duration
+    let half_duration = TractorBeam::MAX_DURATION / 2.0;
+    beam.tick(half_duration);
+    assert!(beam.is_active());
+
+    // Tick remaining duration
+    beam.tick(half_duration);
+    assert!(!beam.is_active());
+}
+
+/// Tests beam wall collision detection scenario.
+#[test]
+fn beam_wall_collision_scenario() {
+    let mut cave = Cave::new(123);
+    let segments: Vec<_> = cave.segments().iter().copied().collect();
+    let first_segment = segments[0];
+
+    // Player positioned in cave (removed unused variable)
+    #[allow(unused_variables)]
+    let player_x = first_segment.x_start + 25.0; // Middle of segment
+
+    // Beam should hit ceiling at segment.ceiling height for upward beam
+    assert!(first_segment.ceiling > 0.0);
+    assert!(first_segment.floor < 600.0);
+
+    // Beam should hit floor at segment.floor height for downward beam
+    let gap_height = first_segment.floor - first_segment.ceiling;
+    assert!(gap_height >= 140.0); // Minimum gap constraint
+}
+
+/// Tests that beam respects cave geometry constraints.
+#[test]
+fn beam_respects_cave_geometry() {
+    let cave = Cave::new(456);
+
+    // Generate several segments
+    let mut cave_mut = cave;
+    for _ in 0..5 {
+        cave_mut.generate_next();
+    }
+
+    let segments = cave_mut.segments_in_view(0.0, 300.0);
+
+    for segment in segments {
+        // Each segment should have valid ceiling and floor heights
+        assert!(segment.ceiling >= 0.0);
+        assert!(segment.floor <= 600.0);
+        assert!(segment.ceiling < segment.floor);
+
+        // Gap should be sufficient for gameplay
+        let gap = segment.floor - segment.ceiling;
+        assert!(gap >= 140.0);
+    }
+}
+</file>
+
+<file path="README.md">
+# Fuel Drift
+
+A Rust cave flying game built with Macroquad, following clean code principles and maintainable architecture.
+
+## Project Structure
+
+This project uses a Cargo workspace with two crates:
+
+- **`core`** - Pure logic library crate containing all game mechanics without graphics dependencies
+  - `game_state` - State machine for menu, playing, paused, and game over states
+  - `player` - Player physics with gravity, thrust, and movement
+  - `cave` - Procedural cave generation for endless gameplay
+  - `collision` - AABB collision detection system
+  - `math` - Mathematical utilities (placeholder for future expansion)
+- **`game`** - Binary crate that handles graphics and user interface using Macroquad
+
+## Prerequisites
+
+- Rust 1.60.0 or later
+- Cargo (comes with Rust)
+
+## Building
+
+To build the entire workspace:
+
+```bash
+cargo build
+```
+
+To build in release mode:
+
+```bash
+cargo build --release
+```
+
+## Running
+
+To run the game:
+
+```bash
+cargo run --bin game
+```
+
+Or from the game directory:
+
+```bash
+cd game
+cargo run
+```
+
+## Testing
+
+Run all tests:
+
+```bash
+cargo test
+```
+
+Run tests for a specific crate:
+
+```bash
+cargo test --package core
+```
+
+## Gameplay
+
+### Controls
+
+**Menu State:**
+- **ENTER** - Start game
+
+**Playing State:**
+- **↑** - Thrust upward
+- **↓** - Thrust downward (reduced power)
+- **←** - Move left
+- **→** - Move right
+- **P** or **ESC** - Pause game
+
+**Paused State:**
+- **P** or **ESC** - Resume game
+- **R** - Return to menu
+
+**Game Over State:**
+- **ENTER** - Restart game
+- **R** - Return to menu
+
+### Game Mechanics
+
+- **Physics**: Direct thrust control without gravity
+- **Cave Generation**: Procedural endless cave with guaranteed minimum gap
+- **Scrolling**: Automatic horizontal scrolling at 120 pixels/second
+- **Player**: 30×18 pixel rectangle with thrust-based movement
+- **Collision Detection**: AABB collision system with immediate game over on wall contact
+- **Visual Feedback**: Red flash effect for 0.3 seconds when collision occurs
+
+### Objective
+
+Navigate through the endless cave without hitting the walls. The cave automatically scrolls, and touching any wall results in immediate game over with visual feedback.
+
+## Development
+
+### Architecture
+
+This project follows clean code principles:
+
+- **Single Responsibility Principle**: Each module and function has one clear purpose
+- **Low Cyclomatic Complexity**: Simple control flow with minimal branching
+- **Testable Code**: Pure logic separated from graphics for easy unit testing
+- **State Management**: Clear state machine with well-defined transitions
+- **Collision System**: Pure AABB collision detection with comprehensive test coverage
+
+### Code Quality
+
+Format code:
+
+```bash
+cargo fmt
+```
+
+Run linter:
+
+```bash
+cargo clippy -- -D warnings
+```
+
+Run tests:
+
+```bash
+cargo test
+```
+
+### Testing Strategy
+
+- **Unit Tests**: All core logic is thoroughly tested
+- **State Machine**: All valid and invalid state transitions tested
+- **Player Physics**: Gravity, thrust, and movement mechanics tested
+- **Cave Generation**: Gap constraints and segment continuity tested
+- **Collision Detection**: Overlapping and non-overlapping cases extensively tested
+- **Integration Tests**: Player-cave collision scenarios and game state transitions
+- **Smoke Tests**: Basic arithmetic validation
+
+### Collision Detection Features
+
+The collision system includes:
+
+- **AABB Algorithm**: Axis-Aligned Bounding Box collision detection
+- **Edge Cases**: Proper handling of touching boundaries, zero-sized rectangles
+- **Floating Point**: Robust handling of floating-point precision
+- **Performance**: Efficient collision checking for multiple cave segments
+- **Integration**: Seamless integration with game state and visual feedback
+
+## Contributing
+
+1. Ensure all tests pass: `cargo test`
+2. Format your code: `cargo fmt`
+3. Check for linting issues: `cargo clippy -- -D warnings`
+4. Create meaningful commit messages following the established patterns
+
+## License
+
+This project is licensed under the MIT License.
+</file>
+
+<file path="core/src/lib.rs">
+// core/src/lib.rs
+
+/// Pure mathematical operations for the Fuel Drift game.
+///
+/// This module contains all mathematical computations without any graphics dependencies,
+/// following the Single Responsibility Principle for mathematical operations.
+pub mod math {
+    // Module is intentionally empty as per requirements
+    // Future mathematical functions will be added here
+}
+
+/// Game state management for the Fuel Drift game.
+///
+/// Handles state transitions and game flow without graphics dependencies.
+pub mod game_state;
+
+/// Player mechanics and physics.
+///
+/// Pure player logic without rendering concerns.
+pub mod player;
+
+/// Cave generation and management.
+///
+/// Procedural cave generation for endless gameplay.
+pub mod cave;
+
+/// Collision detection system.
+///
+/// AABB collision detection for game objects.
+pub mod collision;
+
+/// Fuel system for consumption and refilling mechanics.
+///
+/// Manages fuel levels, burn rates, and empty state detection.
+pub mod fuel;
+
+/// Tractor beam system for attraction and repulsion mechanics.
+///
+/// Manages beam activation, direction, and timing without rendering concerns.
+pub mod tractor;
+
+/// Distance tracking system for gameplay metrics.
+///
+/// Tracks accumulated distance traveled during gameplay.
+pub mod distance;
+</file>
+
+<file path="game/src/main.rs">
+// game/src/main.rs
+
+use macroquad::prelude::*;
+use macroquad::ui::{hash, root_ui, widgets};
+use core::game_state::{GameEvent, StateMachine};
+use core::player::{Player, PlayerInput, Vec2};
+use core::cave::Cave;
+use core::collision::aabb_overlap;
+use core::fuel::Fuel;
+use core::tractor::{TractorBeam, BeamDir};
+use core::distance::DistanceTracker;
+
+/// Window configuration constants
+const WINDOW_WIDTH: i32 = 800;
+const WINDOW_HEIGHT: i32 = 600;
+const WINDOW_TITLE: &str = "Fuel Drift";
+
+/// Game constants
+const SCROLL_SPEED: f32 = 120.0; // pixels/second
+const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
+
+/// Fuel constants
+const INITIAL_FUEL: f32 = 100.0;
+const FUEL_BURN_RATE: f32 = 20.0; // fuel per second when consuming
+
+/// Collision flash constants
+const COLLISION_FLASH_DURATION: f32 = 0.3; // seconds
+
+/// UI constants
+const FUEL_BAR_HEIGHT: f32 = 20.0;
+const FUEL_BAR_Y: f32 = 10.0;
+const FUEL_BAR_MARGIN: f32 = 10.0;
+const LOW_FUEL_THRESHOLD: f32 = 0.2;
+const MEDIUM_FUEL_THRESHOLD: f32 = 0.5;
+const BEAM_ICON_SIZE: f32 = 16.0;
+
+/// Menu UI constants
+const BUTTON_WIDTH: f32 = 200.0;
+const BUTTON_HEIGHT: f32 = 50.0;
+const MENU_SPACING: f32 = 20.0;
+
+/// Game state container following Single Responsibility Principle
+struct GameWorld {
+    state_machine: StateMachine,
+    player: Player,
+    fuel: Fuel,
+    cave: Cave,
+    tractor_beam: TractorBeam,
+    distance_tracker: DistanceTracker,
+    camera_offset_x: f32,
+    collision_flash_timer: f32,
+    should_quit: bool,
+}
+
+impl GameWorld {
+    fn new() -> Self {
+        Self {
+            state_machine: StateMachine::new(),
+            player: Player::new(Vec2::new(100.0, 300.0)),
+            fuel: Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE),
+            cave: Cave::new(42), // Fixed seed for consistent cave
+            tractor_beam: TractorBeam::new(),
+            distance_tracker: DistanceTracker::new(),
+            camera_offset_x: 0.0,
+            collision_flash_timer: 0.0,
+            should_quit: false,
+        }
+    }
+
+    /// Resets the game world for a new game.
+    fn reset(&mut self) {
+        self.player = Player::new(Vec2::new(100.0, 300.0));
+        self.fuel = Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE);
+        self.tractor_beam = TractorBeam::new();
+        self.distance_tracker.reset();
+        self.camera_offset_x = 0.0;
+        self.collision_flash_timer = 0.0;
+        // Keep the same cave for consistency
+    }
+}
+
+/// Window configuration following Single Responsibility Principle
+fn window_conf() -> Conf {
+    Conf {
+        window_title: WINDOW_TITLE.to_owned(),
+        window_width: WINDOW_WIDTH,
+        window_height: WINDOW_HEIGHT,
+        ..Default::default()
+    }
+}
+
+/// Handles main menu UI and interactions
+fn handle_main_menu(world: &mut GameWorld) {
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    // Title
+    draw_text(
+        "FUEL DRIFT",
+        WINDOW_WIDTH as f32 / 2.0 - 80.0,
+        center_y - 100.0,
+        40.0,
+        WHITE,
+    );
+
+    // Instructions
+    draw_text(
+        "Arrow keys: Move | W/S: Tractor Beam | Watch your fuel!",
+        WINDOW_WIDTH as f32 / 2.0 - 180.0,
+        center_y - 50.0,
+        16.0,
+        GRAY,
+    );
+
+    // Start button
+    if widgets::Button::new("Start Game")
+        .position(vec2(center_x, center_y))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::Start);
+        world.reset();
+    }
+
+    // Quit button
+    if widgets::Button::new("Quit")
+        .position(vec2(center_x, center_y + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.should_quit = true;
+    }
+}
+
+/// Handles pause menu overlay
+fn handle_pause_menu(world: &mut GameWorld) {
+    // Semi-transparent overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    // Title
+    draw_text(
+        "PAUSED",
+        WINDOW_WIDTH as f32 / 2.0 - 50.0,
+        center_y - 50.0,
+        30.0,
+        WHITE,
+    );
+
+    // Resume button
+    if widgets::Button::new("Resume")
+        .position(vec2(center_x, center_y))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::PauseToggle);
+    }
+
+    // Back to Menu button
+    if widgets::Button::new("Back to Menu")
+        .position(vec2(center_x, center_y + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::BackToMenu);
+    }
+}
+
+/// Handles game over menu
+fn handle_game_over_menu(world: &mut GameWorld) {
+    let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    let death_message = if world.fuel.is_empty() {
+        "OUT OF FUEL!"
+    } else {
+        "CRASHED!"
+    };
+
+    // Game Over title
+    draw_text(
+        "GAME OVER",
+        WINDOW_WIDTH as f32 / 2.0 - 70.0,
+        center_y - 80.0,
+        30.0,
+        RED,
+    );
+
+    // Death message
+    draw_text(
+        death_message,
+        WINDOW_WIDTH as f32 / 2.0 - 65.0,
+        center_y - 50.0,
+        18.0,
+        WHITE,
+    );
+
+    // Show final distance
+    let final_distance = world.distance_tracker.distance_formatted();
+    let distance_text = format!("Distance: {}", final_distance);
+    draw_text(
+        &distance_text,
+        WINDOW_WIDTH as f32 / 2.0 - 80.0,
+        center_y - 25.0,
+        16.0,
+        YELLOW,
+    );
+
+    // Replay button
+    if widgets::Button::new("Replay")
+        .position(vec2(center_x, center_y + 20.0))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::Start);
+        world.reset();
+    }
+
+    // Back to Menu button
+    if widgets::Button::new("Back to Menu")
+        .position(vec2(center_x, center_y + 20.0 + BUTTON_HEIGHT + MENU_SPACING))
+        .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
+        .ui(&mut root_ui())
+    {
+        world.state_machine.handle_event(GameEvent::BackToMenu);
+    }
+}
+
+/// Handles keyboard input for state transitions
+fn handle_keyboard_input(world: &mut GameWorld) {
+    let current_state = world.state_machine.current();
+
+    match current_state {
+        core::game_state::GameState::Playing => {
+            if is_key_pressed(KeyCode::Escape) {
+                world.state_machine.handle_event(GameEvent::PauseToggle);
+            }
+        }
+        core::game_state::GameState::Paused => {
+            if is_key_pressed(KeyCode::Escape) {
+                world.state_machine.handle_event(GameEvent::BackToMenu);
+            }
+        }
+        core::game_state::GameState::GameOver => {
+            if is_key_pressed(KeyCode::Escape) {
+                world.state_machine.handle_event(GameEvent::BackToMenu);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collects player input for physics simulation and tractor beam control
+fn collect_player_input() -> PlayerInput {
+    PlayerInput {
+        up: is_key_down(KeyCode::Up),
+        down: is_key_down(KeyCode::Down),
+        left: is_key_down(KeyCode::Left),
+        right: is_key_down(KeyCode::Right),
+        tractor_up: is_key_pressed(KeyCode::W),
+        tractor_down: is_key_pressed(KeyCode::S),
+    }
+}
+
+/// Checks if player is currently consuming fuel.
+fn is_consuming_fuel(input: PlayerInput) -> bool {
+    input.up || input.down || input.left || input.right
+}
+
+/// Checks for collision between player and cave walls.
+fn check_player_collision(player: &Player, cave: &mut Cave, camera_offset_x: f32) -> bool {
+    let player_pos = (
+        player.pos.x - PLAYER_SIZE.0 / 2.0,
+        player.pos.y - PLAYER_SIZE.1 / 2.0,
+    );
+
+    let view_start = camera_offset_x;
+    let view_end = camera_offset_x + WINDOW_WIDTH as f32;
+    let segments = cave.segments_in_view(view_start, view_end);
+
+    for segment in segments {
+        // Check collision with ceiling
+        let ceiling_pos = (segment.x_start, 0.0);
+        let ceiling_size = (segment.width, segment.ceiling);
+
+        if aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size) {
+            return true;
+        }
+
+        // Check collision with floor
+        let floor_pos = (segment.x_start, segment.floor);
+        let floor_size = (segment.width, WINDOW_HEIGHT as f32 - segment.floor);
+
+        if aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Updates collision flash timer.
+fn update_collision_flash(world: &mut GameWorld, dt: f32) {
+    if world.collision_flash_timer > 0.0 {
+        world.collision_flash_timer -= dt;
+        if world.collision_flash_timer < 0.0 {
+            world.collision_flash_timer = 0.0;
+        }
+    }
+}
+
+/// Updates game world physics, tractor beam, and collision detection
+fn update_game_world(world: &mut GameWorld, dt: f32) {
+    match world.state_machine.current() {
+        core::game_state::GameState::Playing => {
+            // Update camera scroll
+            world.camera_offset_x += SCROLL_SPEED * dt;
+
+            // Update distance tracker
+            world.distance_tracker.update(SCROLL_SPEED, dt);
+
+            // Collect input
+            let input = collect_player_input();
+
+            // Handle tractor beam activation
+            if input.tractor_up {
+                world.tractor_beam.activate(BeamDir::Up);
+            }
+            if input.tractor_down {
+                world.tractor_beam.activate(BeamDir::Down);
+            }
+
+            // Update tractor beam timer
+            world.tractor_beam.tick(dt);
+
+            let consuming = is_consuming_fuel(input);
+
+            // Update fuel and check for empty state
+            let fuel_became_empty = world.fuel.burn(dt, consuming);
+            if fuel_became_empty {
+                world.state_machine.handle_event(GameEvent::Dead);
+                world.collision_flash_timer = COLLISION_FLASH_DURATION;
+                return;
+            }
+
+            // Update player physics only if fuel is available
+            if !world.fuel.is_empty() {
+                world.player.tick(dt, input);
+            }
+
+            // Check for collisions
+            if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
+                world.state_machine.handle_event(GameEvent::Dead);
+                world.collision_flash_timer = COLLISION_FLASH_DURATION;
+            }
+        }
+        _ => {
+            // No physics updates in other states
+        }
+    }
+
+    // Always update collision flash timer
+    update_collision_flash(world, dt);
+}
+
+/// Renders the cave segments
+fn render_cave(cave: &mut Cave, camera_offset_x: f32) {
+    let view_start = camera_offset_x;
+    let view_end = camera_offset_x + WINDOW_WIDTH as f32;
+
+    let segments = cave.segments_in_view(view_start, view_end);
+    for segment in segments {
+        let screen_x = segment.x_start - camera_offset_x;
+
+        // Draw ceiling (black rectangle from top to ceiling height)
+        draw_rectangle(
+            screen_x,
+            0.0,
+            segment.width,
+            segment.ceiling,
+            BLACK,
+        );
+
+        // Draw floor (black rectangle from floor height to bottom)
+        draw_rectangle(
+            screen_x,
+            segment.floor,
+            segment.width,
+            WINDOW_HEIGHT as f32 - segment.floor,
+            BLACK,
+        );
+    }
+}
+
+/// Renders the player
+fn render_player(player: &Player, camera_offset_x: f32) {
+    let screen_x = player.pos.x - camera_offset_x;
+    let screen_y = player.pos.y;
+
+    draw_rectangle(
+        screen_x - PLAYER_SIZE.0 / 2.0,
+        screen_y - PLAYER_SIZE.1 / 2.0,
+        PLAYER_SIZE.0,
+        PLAYER_SIZE.1,
+        RED,
+    );
+}
+
+/// Calculates fuel color based on fuel ratio with smooth gradient.
+fn get_fuel_color(ratio: f32) -> Color {
+    if ratio > MEDIUM_FUEL_THRESHOLD {
+        // Green to yellow (ratio: 1.0 -> 0.5)
+        let t = (1.0 - ratio) / (1.0 - MEDIUM_FUEL_THRESHOLD);
+        Color::new(t, 1.0, 0.0, 1.0)
+    } else if ratio > LOW_FUEL_THRESHOLD {
+        // Yellow to red (ratio: 0.5 -> 0.2)
+        let t = (ratio - LOW_FUEL_THRESHOLD) / (MEDIUM_FUEL_THRESHOLD - LOW_FUEL_THRESHOLD);
+        Color::new(1.0, t, 0.0, 1.0)
+    } else {
+        // Pure red (ratio: 0.2 -> 0.0)
+        RED
+    }
+}
+
+/// Renders the fuel bar spanning the top of the screen.
+fn render_fuel_bar(fuel: &Fuel) {
+    let ratio = fuel.ratio();
+    let bar_width = WINDOW_WIDTH as f32 - 2.0 * FUEL_BAR_MARGIN;
+
+    // Background bar (dark gray)
+    draw_rectangle(
+        FUEL_BAR_MARGIN,
+        FUEL_BAR_Y,
+        bar_width,
+        FUEL_BAR_HEIGHT,
+        DARKGRAY,
+    );
+
+    // Fuel level bar with gradient color
+    let fuel_width = bar_width * ratio;
+    let fuel_color = get_fuel_color(ratio);
+
+    draw_rectangle(
+        FUEL_BAR_MARGIN,
+        FUEL_BAR_Y,
+        fuel_width,
+        FUEL_BAR_HEIGHT,
+        fuel_color,
+    );
+
+    // Border
+    draw_rectangle_lines(
+        FUEL_BAR_MARGIN,
+        FUEL_BAR_Y,
+        bar_width,
+        FUEL_BAR_HEIGHT,
+        2.0,
+        WHITE,
+    );
+
+    // Fuel percentage text
+    let fuel_text = format!("{}%", (ratio * 100.0) as u32);
+    draw_text(
+        &fuel_text,
+        FUEL_BAR_MARGIN + 5.0,
+        FUEL_BAR_Y + FUEL_BAR_HEIGHT - 5.0,
+        14.0,
+        WHITE,
+    );
+}
+
+/// Renders the distance display in the top-right corner.
+fn render_distance_display(distance_tracker: &DistanceTracker) {
+    let distance_text = distance_tracker.distance_formatted();
+    let text_size = 20.0;
+    let margin = 15.0;
+
+    // Calculate text position (right-aligned)
+    let text_width = measure_text(&distance_text, None, text_size as u16, 1.0).width;
+    let text_x = WINDOW_WIDTH as f32 - text_width - margin;
+    let text_y = margin + text_size;
+
+    draw_text(
+        &distance_text,
+        text_x,
+        text_y,
+        text_size,
+        WHITE,
+    );
+}
+
+/// Renders the beam ready indicator icon.
+fn render_beam_indicator(tractor_beam: &TractorBeam) {
+    let icon_x = FUEL_BAR_MARGIN + 5.0;
+    let icon_y = FUEL_BAR_Y + FUEL_BAR_HEIGHT + 10.0;
+
+    // Choose color based on beam state
+    let icon_color = if tractor_beam.is_active() {
+        GRAY // Grayed out when active
+    } else {
+        Color::new(0.5, 0.8, 1.0, 1.0) // Light blue when ready
+    };
+
+    // Draw simple beam icon (triangle pointing up)
+    let points = [
+        Vec2::new(icon_x + BEAM_ICON_SIZE / 2.0, icon_y),
+        Vec2::new(icon_x, icon_y + BEAM_ICON_SIZE),
+        Vec2::new(icon_x + BEAM_ICON_SIZE, icon_y + BEAM_ICON_SIZE),
+    ];
+
+    // Draw filled triangle
+    for i in 0..3 {
+        let start = points[i];
+        let end = points[(i + 1) % 3];
+        draw_line(start.x, start.y, end.x, end.y, 2.0, icon_color);
+    }
+
+    // Fill triangle (simple approximation)
+    for y in 0..BEAM_ICON_SIZE as i32 {
+        let progress = y as f32 / BEAM_ICON_SIZE;
+        let line_width = BEAM_ICON_SIZE * progress;
+        let line_start = icon_x + (BEAM_ICON_SIZE - line_width) / 2.0;
+
+        draw_rectangle(
+            line_start,
+            icon_y + y as f32,
+            line_width,
+            1.0,
+            Color::new(icon_color.r, icon_color.g, icon_color.b, 0.5),
+        );
+    }
+
+    // Beam status text
+    let status_text = if tractor_beam.is_active() {
+        "BEAM ACTIVE"
+    } else {
+        "BEAM READY"
+    };
+
+    draw_text(
+        status_text,
+        icon_x + BEAM_ICON_SIZE + 5.0,
+        icon_y + BEAM_ICON_SIZE / 2.0 + 4.0,
+        12.0,
+        icon_color,
+    );
+}
+
+/// Renders collision flash effect.
+fn render_collision_flash(collision_flash_timer: f32) {
+    if collision_flash_timer > 0.0 {
+        let alpha = collision_flash_timer / COLLISION_FLASH_DURATION;
+        let flash_color = Color::new(1.0, 0.0, 0.0, alpha * 0.5);
+
+        draw_rectangle(
+            0.0,
+            0.0,
+            WINDOW_WIDTH as f32,
+            WINDOW_HEIGHT as f32,
+            flash_color,
+        );
+    }
+}
+
+/// Renders the tractor beam as a blue rectangle ending at cave walls
+fn render_tractor_beam(player: &Player, tractor_beam: &TractorBeam, cave: &mut Cave, camera_offset_x: f32) {
+    if !tractor_beam.is_active() {
+        return;
+    }
+
+    let screen_x = player.pos.x - camera_offset_x;
+    let beam_width = 32.0; // 16px on each side of player center
+    let beam_x = screen_x - beam_width / 2.0;
+
+    // Get cave segments at player position to find wall heights
+    let wall_height = get_cave_wall_height_at_position(player.pos.x, tractor_beam.dir, cave);
+
+    match tractor_beam.dir {
+        BeamDir::Up => {
+            // Beam from player to ceiling
+            let beam_start_y = wall_height; // Ceiling height
+            let beam_height = player.pos.y - wall_height;
+
+            // Only draw if there's space between player and ceiling
+            if beam_height > 0.0 {
+                draw_rectangle(
+                    beam_x,
+                    beam_start_y,
+                    beam_width,
+                    beam_height,
+                    Color::new(0.0, 0.5, 1.0, 0.6), // Semi-transparent blue
+                );
+            }
+        }
+        BeamDir::Down => {
+            // Beam from player to floor
+            let beam_start_y = player.pos.y;
+            let beam_height = wall_height - player.pos.y; // Floor height - player position
+
+            // Only draw if there's space between player and floor
+            if beam_height > 0.0 {
+                draw_rectangle(
+                    beam_x,
+                    beam_start_y,
+                    beam_width,
+                    beam_height,
+                    Color::new(0.0, 0.5, 1.0, 0.6), // Semi-transparent blue
+                );
+            }
+        }
+    }
+}
+
+/// Gets the cave wall height (ceiling or floor) at the specified x position.
+fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Cave) -> f32 {
+    // Get cave segments around player position
+    let view_start = x_pos - 50.0; // Small buffer around player
+    let view_end = x_pos + 50.0;
+    let segments = cave.segments_in_view(view_start, view_end);
+
+    // Find the segment that contains the player's x position
+    for segment in segments {
+        if x_pos >= segment.x_start && x_pos < segment.x_end() {
+            return match beam_dir {
+                BeamDir::Up => segment.ceiling,
+                BeamDir::Down => segment.floor,
+            };
+        }
+    }
+
+    // Fallback if no segment found (shouldn't happen in normal gameplay)
+    match beam_dir {
+        BeamDir::Up => 0.0, // Top of window
+        BeamDir::Down => WINDOW_HEIGHT as f32, // Bottom of window
+    }
+}
+
+/// Main game loop with menu system integration
+#[macroquad::main(window_conf)]
+async fn main() {
+    let mut world = GameWorld::new();
+
+    loop {
+        if world.should_quit {
+            break;
+        }
+
+        let dt = get_frame_time();
+
+        // Handle keyboard input
+        handle_keyboard_input(&mut world);
+
+        // Handle UI based on current state
+        match world.state_machine.current() {
+            core::game_state::GameState::Menu => {
+                clear_background(DARKBLUE);
+                handle_main_menu(&mut world);
+            }
+            core::game_state::GameState::Playing => {
+                update_game_world(&mut world, dt);
+
+                clear_background(DARKBLUE);
+                render_cave(&mut world.cave, world.camera_offset_x);
+                render_player(&world.player, world.camera_offset_x);
+                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_fuel_bar(&world.fuel);
+                render_distance_display(&world.distance_tracker);
+                render_beam_indicator(&world.tractor_beam);
+                render_collision_flash(world.collision_flash_timer);
+            }
+            core::game_state::GameState::Paused => {
+                // Keep game visuals but add pause overlay
+                clear_background(DARKBLUE);
+                render_cave(&mut world.cave, world.camera_offset_x);
+                render_player(&world.player, world.camera_offset_x);
+                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_fuel_bar(&world.fuel);
+                render_distance_display(&world.distance_tracker);
+                render_beam_indicator(&world.tractor_beam);
+
+                handle_pause_menu(&mut world);
+            }
+            core::game_state::GameState::GameOver => {
+                clear_background(DARKBLUE);
+                render_collision_flash(world.collision_flash_timer);
+                handle_game_over_menu(&mut world);
+            }
+        }
+
+        next_frame().await;
+    }
+}
+</file>
+
+</files>

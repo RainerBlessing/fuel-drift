@@ -39,6 +39,7 @@ pub mod fuel;
 /// Manages beam activation, direction, and timing without rendering concerns.
 pub mod tractor;
 
+pub mod audio;
 /// Distance tracking system for gameplay metrics.
 ///
 /// Tracks accumulated distance traveled during gameplay.

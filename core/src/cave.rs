@@ -111,7 +111,9 @@ impl Cave {
     ///
     /// Ensures minimum gap is maintained and segments are contiguous.
     pub fn generate_next(&mut self) {
-        let prev_segment = self.segments.back()
+        let prev_segment = self
+            .segments
+            .back()
             .expect("Cave should always have at least one segment");
 
         let ceiling_change = self.rng.range(
@@ -162,9 +164,7 @@ impl Cave {
         // Return segments that intersect with the view range
         self.segments
             .iter()
-            .filter(|segment| {
-                segment.x_start < x_max && segment.x_end() > x_min
-            })
+            .filter(|segment| segment.x_start < x_max && segment.x_end() > x_min)
             .copied()
             .collect()
     }

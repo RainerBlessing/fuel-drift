@@ -151,9 +151,11 @@ fn multiple_tick_cycles() {
     }
 
     // After exceeding MAX_DURATION, beam should be deactivated
-    assert!(!beam.active,
-            "Beam should be deactivated after {:.6} seconds ({} ticks, expected ~{})",
-            elapsed_time, tick_count, expected_ticks);
+    assert!(
+        !beam.active,
+        "Beam should be deactivated after {:.6} seconds ({} ticks, expected ~{})",
+        elapsed_time, tick_count, expected_ticks
+    );
 
     // Verify timer is reset
     assert_eq!(beam.timer, 0.0, "Timer should be reset to 0.0");

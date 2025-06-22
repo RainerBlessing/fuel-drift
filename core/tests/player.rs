@@ -1,4 +1,4 @@
-use core::player::{Player, PlayerInput, PlayerConstants, Vec2};
+use core::player::{Player, PlayerConstants, PlayerInput, Vec2};
 
 const DT: f32 = 1.0 / 60.0; // 60 FPS
 const EPSILON: f32 = 0.001;
@@ -31,13 +31,19 @@ fn up_thrust_affects_velocity_y() {
     let mut player = create_test_player();
     let initial_vel_y = player.vel.y;
 
-    let input = PlayerInput { up: true, ..Default::default() };
+    let input = PlayerInput {
+        up: true,
+        ..Default::default()
+    };
     player.tick(DT, input);
 
     // Should have thrust applied (no gravity since it's disabled)
     let expected_vel_y = initial_vel_y + PlayerConstants::THRUST * DT;
     assert_float_eq(player.vel.y, expected_vel_y);
-    assert!(player.vel.y < initial_vel_y, "Thrust should create upward velocity");
+    assert!(
+        player.vel.y < initial_vel_y,
+        "Thrust should create upward velocity"
+    );
 }
 
 /// Tests that downward thrust increases downward velocity.
@@ -46,14 +52,20 @@ fn down_thrust_increases_velocity_y() {
     let mut player = create_test_player();
     let initial_vel_y = player.vel.y;
 
-    let input = PlayerInput { down: true, ..Default::default() };
+    let input = PlayerInput {
+        down: true,
+        ..Default::default()
+    };
     player.tick(DT, input);
 
     // Only thrust force applied (no gravity)
     let thrust_force = -PlayerConstants::THRUST * PlayerConstants::DOWN_THRUST_MULTIPLIER;
     let expected_vel_y = initial_vel_y + thrust_force * DT;
     assert_float_eq(player.vel.y, expected_vel_y);
-    assert!(player.vel.y > initial_vel_y, "Down thrust should create downward velocity");
+    assert!(
+        player.vel.y > initial_vel_y,
+        "Down thrust should create downward velocity"
+    );
 }
 
 /// Tests that no horizontal input leaves horizontal velocity unchanged.
@@ -74,17 +86,29 @@ fn horizontal_input_affects_velocity_x() {
     let mut player = create_test_player();
 
     // Test left input
-    let left_input = PlayerInput { left: true, ..Default::default() };
+    let left_input = PlayerInput {
+        left: true,
+        ..Default::default()
+    };
     player.tick(DT, left_input);
-    assert!(player.vel.x < 0.0, "Left input should create negative velocity");
+    assert!(
+        player.vel.x < 0.0,
+        "Left input should create negative velocity"
+    );
 
     // Reset player
     player = create_test_player();
 
     // Test right input
-    let right_input = PlayerInput { right: true, ..Default::default() };
+    let right_input = PlayerInput {
+        right: true,
+        ..Default::default()
+    };
     player.tick(DT, right_input);
-    assert!(player.vel.x > 0.0, "Right input should create positive velocity");
+    assert!(
+        player.vel.x > 0.0,
+        "Right input should create positive velocity"
+    );
 }
 
 /// Tests that horizontal speed is clamped to maximum.

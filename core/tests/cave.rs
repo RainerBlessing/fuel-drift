@@ -25,7 +25,11 @@ fn simple_rng_range() {
 
     for _ in 0..100 {
         let value = rng.range(10.0, 20.0);
-        assert!(value >= 10.0 && value < 20.0, "Value {} not in range [10, 20)", value);
+        assert!(
+            value >= 10.0 && value < 20.0,
+            "Value {} not in range [10, 20)",
+            value
+        );
     }
 }
 
@@ -80,10 +84,7 @@ fn segments_are_contiguous() {
         let prev_end = segments[i - 1].x_end();
         let current_start = segments[i].x_start;
 
-        assert_float_eq(
-            current_start,
-            prev_end,
-        );
+        assert_float_eq(current_start, prev_end);
     }
 }
 
@@ -139,7 +140,11 @@ fn segments_in_view_filters_correctly() {
     // All returned segments should intersect with the view range
     for segment in segments {
         let intersects = segment.x_start < view_end && segment.x_end() > view_start;
-        assert!(intersects, "Segment {:?} doesn't intersect view range [{}, {}]", segment, view_start, view_end);
+        assert!(
+            intersects,
+            "Segment {:?} doesn't intersect view range [{}, {}]",
+            segment, view_start, view_end
+        );
     }
 }
 
@@ -187,5 +192,9 @@ fn cave_limits_segment_count() {
     }
 
     // Should not exceed reasonable memory usage
-    assert!(cave.segments().len() <= 100, "Too many segments retained: {}", cave.segments().len());
+    assert!(
+        cave.segments().len() <= 100,
+        "Too many segments retained: {}",
+        cave.segments().len()
+    );
 }

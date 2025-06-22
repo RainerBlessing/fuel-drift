@@ -12,24 +12,42 @@ fn menu_state_transitions() {
 /// Tests for valid state transitions from Playing state.
 #[test]
 fn playing_state_transitions() {
-    assert_eq!(GameState::Playing.next(GameEvent::PauseToggle), GameState::Paused);
-    assert_eq!(GameState::Playing.next(GameEvent::Dead), GameState::GameOver);
+    assert_eq!(
+        GameState::Playing.next(GameEvent::PauseToggle),
+        GameState::Paused
+    );
+    assert_eq!(
+        GameState::Playing.next(GameEvent::Dead),
+        GameState::GameOver
+    );
 }
 
 /// Tests for valid state transitions from Paused state.
 #[test]
 fn paused_state_transitions() {
-    assert_eq!(GameState::Paused.next(GameEvent::PauseToggle), GameState::Playing);
+    assert_eq!(
+        GameState::Paused.next(GameEvent::PauseToggle),
+        GameState::Playing
+    );
     assert_eq!(GameState::Paused.next(GameEvent::Reset), GameState::Menu);
-    assert_eq!(GameState::Paused.next(GameEvent::BackToMenu), GameState::Menu);
+    assert_eq!(
+        GameState::Paused.next(GameEvent::BackToMenu),
+        GameState::Menu
+    );
 }
 
 /// Tests for valid state transitions from GameOver state.
 #[test]
 fn game_over_state_transitions() {
-    assert_eq!(GameState::GameOver.next(GameEvent::Start), GameState::Playing);
+    assert_eq!(
+        GameState::GameOver.next(GameEvent::Start),
+        GameState::Playing
+    );
     assert_eq!(GameState::GameOver.next(GameEvent::Reset), GameState::Menu);
-    assert_eq!(GameState::GameOver.next(GameEvent::BackToMenu), GameState::Menu);
+    assert_eq!(
+        GameState::GameOver.next(GameEvent::BackToMenu),
+        GameState::Menu
+    );
 }
 
 /// Tests that BackToMenu event works correctly from Paused state.
@@ -102,29 +120,50 @@ fn invalid_back_to_menu_transitions() {
     assert_eq!(GameState::Menu.next(GameEvent::BackToMenu), GameState::Menu);
 
     // BackToMenu from Playing should remain in Playing
-    assert_eq!(GameState::Playing.next(GameEvent::BackToMenu), GameState::Playing);
+    assert_eq!(
+        GameState::Playing.next(GameEvent::BackToMenu),
+        GameState::Playing
+    );
 }
 
 /// Tests that all existing invalid transitions still work correctly.
 #[test]
 fn invalid_transitions_remain_in_current_state() {
     // Menu state invalid transitions
-    assert_eq!(GameState::Menu.next(GameEvent::PauseToggle), GameState::Menu);
+    assert_eq!(
+        GameState::Menu.next(GameEvent::PauseToggle),
+        GameState::Menu
+    );
     assert_eq!(GameState::Menu.next(GameEvent::Dead), GameState::Menu);
     assert_eq!(GameState::Menu.next(GameEvent::BackToMenu), GameState::Menu);
 
     // Playing state invalid transitions
-    assert_eq!(GameState::Playing.next(GameEvent::Start), GameState::Playing);
-    assert_eq!(GameState::Playing.next(GameEvent::Reset), GameState::Playing);
-    assert_eq!(GameState::Playing.next(GameEvent::BackToMenu), GameState::Playing);
+    assert_eq!(
+        GameState::Playing.next(GameEvent::Start),
+        GameState::Playing
+    );
+    assert_eq!(
+        GameState::Playing.next(GameEvent::Reset),
+        GameState::Playing
+    );
+    assert_eq!(
+        GameState::Playing.next(GameEvent::BackToMenu),
+        GameState::Playing
+    );
 
     // Paused state invalid transitions
     assert_eq!(GameState::Paused.next(GameEvent::Start), GameState::Paused);
     assert_eq!(GameState::Paused.next(GameEvent::Dead), GameState::Paused);
 
     // GameOver state invalid transitions
-    assert_eq!(GameState::GameOver.next(GameEvent::PauseToggle), GameState::GameOver);
-    assert_eq!(GameState::GameOver.next(GameEvent::Dead), GameState::GameOver);
+    assert_eq!(
+        GameState::GameOver.next(GameEvent::PauseToggle),
+        GameState::GameOver
+    );
+    assert_eq!(
+        GameState::GameOver.next(GameEvent::Dead),
+        GameState::GameOver
+    );
 }
 
 /// Tests Reset vs BackToMenu distinction in different states.
@@ -132,11 +171,17 @@ fn invalid_transitions_remain_in_current_state() {
 fn reset_vs_back_to_menu_distinction() {
     // From Paused: both Reset and BackToMenu go to Menu
     assert_eq!(GameState::Paused.next(GameEvent::Reset), GameState::Menu);
-    assert_eq!(GameState::Paused.next(GameEvent::BackToMenu), GameState::Menu);
+    assert_eq!(
+        GameState::Paused.next(GameEvent::BackToMenu),
+        GameState::Menu
+    );
 
     // From GameOver: both Reset and BackToMenu go to Menu
     assert_eq!(GameState::GameOver.next(GameEvent::Reset), GameState::Menu);
-    assert_eq!(GameState::GameOver.next(GameEvent::BackToMenu), GameState::Menu);
+    assert_eq!(
+        GameState::GameOver.next(GameEvent::BackToMenu),
+        GameState::Menu
+    );
 
     // Both events have the same effect, but semantically different meanings
     // Reset implies "reset game state", BackToMenu implies "navigation"

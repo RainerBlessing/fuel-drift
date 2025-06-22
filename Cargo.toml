@@ -1,7 +1,11 @@
-# Datei: Cargo.toml (Root Workspace)
+# Cargo.toml (Root Workspace)
 [workspace]
 members = ["core", "game"]
 resolver = "2"
 
 [workspace.dependencies]
 macroquad = "0.4"
+
+# Add WASM support
+[workspace.metadata.docs.rs]
+targets = ["wasm32-unknown-unknown"]

@@ -1,9 +1,20 @@
-# Datei: game/Cargo.toml
 [package]
 name = "game"
 version = "0.1.0"
 edition = "2021"
+description = "Fuel Drift - A Rust cave flying game built with Macroquad"
+license = "MIT"
+repository = "https://github.com/yourusername/fuel-drift"
+keywords = ["game", "macroquad", "cave", "flying"]
+categories = ["games"]
+
+[[bin]]
+name = "fuel-drift"
+path = "src/main.rs"
 
 [dependencies]
 core = { path = "../core" }
 macroquad = { workspace = true }
+
+[target.wasm32-unknown-unknown.dependencies]
+wasm-bindgen = "0.2"

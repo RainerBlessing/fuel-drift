@@ -4,7 +4,7 @@ use core::cave::{Cave, CaveSegment};
 use core::collision::aabb_overlap;
 use core::game_state::{GameEvent, GameState, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
-use core::tractor::{TractorBeam, BeamDir};
+use core::tractor::{BeamDir, TractorBeam};
 
 const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
 
@@ -24,7 +24,12 @@ fn player_collides_with_ceiling() {
     let ceiling_pos = (segment.x_start, 0.0);
     let ceiling_size = (segment.width, segment.ceiling);
 
-    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 }
 
 /// Tests player collision with floor.
@@ -52,12 +57,22 @@ fn player_in_safe_zone() {
     // Check no collision with ceiling
     let ceiling_pos = (segment.x_start, 0.0);
     let ceiling_size = (segment.width, segment.ceiling);
-    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 
     // Check no collision with floor
     let floor_pos = (segment.x_start, segment.floor);
     let floor_size = (segment.width, 600.0 - segment.floor);
-    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        floor_pos,
+        floor_size
+    ));
 }
 
 /// Tests player outside segment horizontally.
@@ -70,11 +85,21 @@ fn player_outside_segment_horizontally() {
 
     let ceiling_pos = (segment.x_start, 0.0);
     let ceiling_size = (segment.width, segment.ceiling);
-    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 
     let floor_pos = (segment.x_start, segment.floor);
     let floor_size = (segment.width, 600.0 - segment.floor);
-    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, floor_pos, floor_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        floor_pos,
+        floor_size
+    ));
 }
 
 /// Tests collision at segment boundary.
@@ -87,7 +112,12 @@ fn collision_at_segment_boundary() {
     let ceiling_pos = (segment.x_start, 0.0);
     let ceiling_size = (segment.width, segment.ceiling);
 
-    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 }
 
 /// Tests game state transition on collision simulation.
@@ -114,7 +144,10 @@ fn player_physics_collision_scenario() {
     let mut player = Player::new(Vec2::new(100.0, 90.0));
 
     // Apply upward thrust to move towards ceiling
-    let input = PlayerInput { up: true, ..Default::default() };
+    let input = PlayerInput {
+        up: true,
+        ..Default::default()
+    };
     let dt = 1.0 / 60.0; // 60 FPS
 
     // Move player multiple frames
@@ -123,7 +156,10 @@ fn player_physics_collision_scenario() {
     }
 
     // Player should have moved upward
-    assert!(player.pos.y < 90.0, "Player should have moved up due to thrust");
+    assert!(
+        player.pos.y < 90.0,
+        "Player should have moved up due to thrust"
+    );
 
     // Test collision with ceiling at y=100
     let player_pos = (
@@ -162,7 +198,12 @@ fn multiple_segments_collision() {
     let ceiling_pos = (first_segment.x_start, 0.0);
     let ceiling_size = (first_segment.width, first_segment.ceiling);
 
-    assert!(aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 }
 
 /// Tests edge case: player exactly at collision boundary.
@@ -174,20 +215,30 @@ fn player_at_collision_boundary() {
     // Ceiling goes from y=0 to y=100
     // Player positioned with top at y=100.1 (just below, no overlap)
     let player_pos = (60.0, 100.1); // Top-left corner at (60, 100.1)
-    // Player extends from (60,100.1) to (90,118.1) - no overlap with ceiling (50,0) to (100,100)
+                                    // Player extends from (60,100.1) to (90,118.1) - no overlap with ceiling (50,0) to (100,100)
 
     let ceiling_pos = (segment.x_start, 0.0);
     let ceiling_size = (segment.width, segment.ceiling);
 
     // Should not collide (separated by 0.1 pixel)
-    assert!(!aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 
     // Move player up to create overlap
     let overlapping_pos = (60.0, 99.0); // Top-left at (60, 99)
-    // Player now extends from (60,99) to (90,117) - overlaps with ceiling at y=100
+                                        // Player now extends from (60,99) to (90,117) - overlaps with ceiling at y=100
 
     // Should now collide
-    assert!(aabb_overlap(overlapping_pos, PLAYER_SIZE, ceiling_pos, ceiling_size));
+    assert!(aabb_overlap(
+        overlapping_pos,
+        PLAYER_SIZE,
+        ceiling_pos,
+        ceiling_size
+    ));
 }
 
 /// Tests simple boundary case with clear coordinates.
@@ -199,16 +250,26 @@ fn simple_boundary_test() {
 
     // Player positioned just below ceiling (no overlap)
     let player_pos = (25.0, 50.1); // Player top-left at (25, 50.1)
-    let player_size = PLAYER_SIZE;  // Player extends to (55, 68.1)
+    let player_size = PLAYER_SIZE; // Player extends to (55, 68.1)
 
     // Player starts at y=50.1, ceiling ends at y=50 - no overlap
-    assert!(!aabb_overlap(player_pos, player_size, ceiling_pos, ceiling_size));
+    assert!(!aabb_overlap(
+        player_pos,
+        player_size,
+        ceiling_pos,
+        ceiling_size
+    ));
 
     // Move player up to create overlap
     let overlapping_pos = (25.0, 49.0); // Player top-left at (25, 49)
-    // Player now extends to (55, 67), overlapping with ceiling ending at y=50
+                                        // Player now extends to (55, 67), overlapping with ceiling ending at y=50
 
-    assert!(aabb_overlap(overlapping_pos, player_size, ceiling_pos, ceiling_size));
+    assert!(aabb_overlap(
+        overlapping_pos,
+        player_size,
+        ceiling_pos,
+        ceiling_size
+    ));
 }
 
 /// Debug test to understand coordinate system.
@@ -223,14 +284,20 @@ fn debug_coordinates() {
 
     // This should NOT overlap since player starts at y=50.1 and ceiling ends at y=50
     let result = aabb_overlap(player_pos, PLAYER_SIZE, ceiling_pos, ceiling_size);
-    assert!(!result, "Player at y=50.1 should not overlap with ceiling ending at y=50");
+    assert!(
+        !result,
+        "Player at y=50.1 should not overlap with ceiling ending at y=50"
+    );
 
     // Player overlapping
     let player_pos_overlap = (10.0, 49.0); // Player at (10,49) to (40,67)
 
     // This SHOULD overlap since player starts at y=49 and ceiling ends at y=50
     let result_overlap = aabb_overlap(player_pos_overlap, PLAYER_SIZE, ceiling_pos, ceiling_size);
-    assert!(result_overlap, "Player at y=49 should overlap with ceiling ending at y=50");
+    assert!(
+        result_overlap,
+        "Player at y=49 should overlap with ceiling ending at y=50"
+    );
 }
 
 /// Tests exact touching boundary (edge case).
@@ -315,7 +382,7 @@ fn tractor_beam_activation_integration() {
 /// Tests beam wall collision detection scenario.
 #[test]
 fn beam_wall_collision_scenario() {
-    let mut cave = Cave::new(123);
+    let cave = Cave::new(123);
     let segments: Vec<_> = cave.segments().iter().copied().collect();
     let first_segment = segments[0];
 

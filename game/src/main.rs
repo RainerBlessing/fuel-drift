@@ -1,14 +1,17 @@
 // game/src/main.rs
 
-use macroquad::prelude::*;
-use macroquad::ui::{hash, root_ui, widgets};
-use core::game_state::{GameEvent, StateMachine};
-use core::player::{Player, PlayerInput, Vec2};
+use core::audio::{AudioEvent, AudioEventQueue, AudioState};
 use core::cave::Cave;
 use core::collision::aabb_overlap;
-use core::fuel::Fuel;
-use core::tractor::{TractorBeam, BeamDir};
 use core::distance::DistanceTracker;
+use core::fuel::Fuel;
+use core::game_state::{GameEvent, StateMachine};
+use core::player::{Player, PlayerInput, Vec2};
+use core::tractor::{BeamDir, TractorBeam};
+use macroquad::prelude::*;
+use macroquad::ui::{root_ui, widgets};
+
+mod headless_test;
 
 /// Window configuration constants
 const WINDOW_WIDTH: i32 = 800;
@@ -39,6 +42,74 @@ const BUTTON_WIDTH: f32 = 200.0;
 const BUTTON_HEIGHT: f32 = 50.0;
 const MENU_SPACING: f32 = 20.0;
 
+/// Simplified audio system for managing sound events without actual audio playback.
+/// This is a stub implementation that logs audio events for development.
+struct AudioSystem {
+    audio_state: AudioState,
+}
+
+impl AudioSystem {
+    fn new() -> Self {
+        Self {
+            audio_state: AudioState::new(),
+        }
+    }
+
+    fn process_events(&mut self, events: Vec<AudioEvent>) {
+        for event in events {
+            self.play_event(event);
+        }
+    }
+
+    fn play_event(&mut self, event: AudioEvent) {
+        // Stub implementation - in production this would play actual sounds
+        match event {
+            AudioEvent::ThrusterLoop => {
+                // Log thruster sound for debugging
+                #[cfg(debug_assertions)]
+                println!("🔊 Playing thruster loop sound");
+            }
+            AudioEvent::BeamActivation => {
+                #[cfg(debug_assertions)]
+                println!("🔊 Playing beam activation sound");
+            }
+            AudioEvent::FuelPickup => {
+                #[cfg(debug_assertions)]
+                println!("🔊 Playing fuel pickup sound");
+            }
+            AudioEvent::Death => {
+                #[cfg(debug_assertions)]
+                println!("🔊 Playing death sound");
+            }
+            AudioEvent::ButtonClick => {
+                #[cfg(debug_assertions)]
+                println!("🔊 Playing button click sound");
+            }
+        }
+    }
+
+    fn update_thruster(&mut self, should_play: bool) -> Option<AudioEvent> {
+        if self.audio_state.update_thruster(should_play) {
+            if should_play {
+                Some(AudioEvent::ThrusterLoop)
+            } else {
+                // Stop thruster sound
+                #[cfg(debug_assertions)]
+                println!("🔊 Stopping thruster sound");
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn stop_all(&mut self) {
+        self.audio_state.stop_all();
+        #[cfg(debug_assertions)]
+        println!("🔊 Stopping all sounds");
+    }
+}
+
 /// Game state container following Single Responsibility Principle
 struct GameWorld {
     state_machine: StateMachine,
@@ -47,6 +118,7 @@ struct GameWorld {
     cave: Cave,
     tractor_beam: TractorBeam,
     distance_tracker: DistanceTracker,
+    audio_queue: AudioEventQueue,
     camera_offset_x: f32,
     collision_flash_timer: f32,
     should_quit: bool,
@@ -61,6 +133,7 @@ impl GameWorld {
             cave: Cave::new(42), // Fixed seed for consistent cave
             tractor_beam: TractorBeam::new(),
             distance_tracker: DistanceTracker::new(),
+            audio_queue: AudioEventQueue::new(),
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
             should_quit: false,
@@ -90,7 +163,7 @@ fn window_conf() -> Conf {
 }
 
 /// Handles main menu UI and interactions
-fn handle_main_menu(world: &mut GameWorld) {
+fn handle_main_menu(world: &mut GameWorld, _audio_system: &mut AudioSystem) {
     let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
     let center_y = WINDOW_HEIGHT as f32 / 2.0;
 
@@ -118,6 +191,7 @@ fn handle_main_menu(world: &mut GameWorld) {
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::Start);
         world.reset();
     }
@@ -128,6 +202,7 @@ fn handle_main_menu(world: &mut GameWorld) {
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.should_quit = true;
     }
 }
@@ -161,6 +236,7 @@ fn handle_pause_menu(world: &mut GameWorld) {
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::PauseToggle);
     }
 
@@ -170,6 +246,7 @@ fn handle_pause_menu(world: &mut GameWorld) {
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::BackToMenu);
     }
 }
@@ -220,16 +297,21 @@ fn handle_game_over_menu(world: &mut GameWorld) {
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::Start);
         world.reset();
     }
 
     // Back to Menu button
     if widgets::Button::new("Back to Menu")
-        .position(vec2(center_x, center_y + 20.0 + BUTTON_HEIGHT + MENU_SPACING))
+        .position(vec2(
+            center_x,
+            center_y + 20.0 + BUTTON_HEIGHT + MENU_SPACING,
+        ))
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
         .ui(&mut root_ui())
     {
+        world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::BackToMenu);
     }
 }
@@ -318,7 +400,7 @@ fn update_collision_flash(world: &mut GameWorld, dt: f32) {
 }
 
 /// Updates game world physics, tractor beam, and collision detection
-fn update_game_world(world: &mut GameWorld, dt: f32) {
+fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: f32) {
     match world.state_machine.current() {
         core::game_state::GameState::Playing => {
             // Update camera scroll
@@ -333,9 +415,11 @@ fn update_game_world(world: &mut GameWorld, dt: f32) {
             // Handle tractor beam activation
             if input.tractor_up {
                 world.tractor_beam.activate(BeamDir::Up);
+                world.audio_queue.push(AudioEvent::BeamActivation);
             }
             if input.tractor_down {
                 world.tractor_beam.activate(BeamDir::Down);
+                world.audio_queue.push(AudioEvent::BeamActivation);
             }
 
             // Update tractor beam timer
@@ -343,11 +427,18 @@ fn update_game_world(world: &mut GameWorld, dt: f32) {
 
             let consuming = is_consuming_fuel(input);
 
+            // Update thruster audio
+            if let Some(thruster_event) = audio_system.update_thruster(consuming) {
+                world.audio_queue.push(thruster_event);
+            }
+
             // Update fuel and check for empty state
             let fuel_became_empty = world.fuel.burn(dt, consuming);
             if fuel_became_empty {
+                world.audio_queue.push(AudioEvent::Death);
                 world.state_machine.handle_event(GameEvent::Dead);
                 world.collision_flash_timer = COLLISION_FLASH_DURATION;
+                audio_system.stop_all();
                 return;
             }
 
@@ -358,12 +449,15 @@ fn update_game_world(world: &mut GameWorld, dt: f32) {
 
             // Check for collisions
             if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
+                world.audio_queue.push(AudioEvent::Death);
                 world.state_machine.handle_event(GameEvent::Dead);
                 world.collision_flash_timer = COLLISION_FLASH_DURATION;
+                audio_system.stop_all();
             }
         }
         _ => {
-            // No physics updates in other states
+            // Stop all sounds when not playing
+            audio_system.stop_all();
         }
     }
 
@@ -381,13 +475,7 @@ fn render_cave(cave: &mut Cave, camera_offset_x: f32) {
         let screen_x = segment.x_start - camera_offset_x;
 
         // Draw ceiling (black rectangle from top to ceiling height)
-        draw_rectangle(
-            screen_x,
-            0.0,
-            segment.width,
-            segment.ceiling,
-            BLACK,
-        );
+        draw_rectangle(screen_x, 0.0, segment.width, segment.ceiling, BLACK);
 
         // Draw floor (black rectangle from floor height to bottom)
         draw_rectangle(
@@ -488,13 +576,7 @@ fn render_distance_display(distance_tracker: &DistanceTracker) {
     let text_x = WINDOW_WIDTH as f32 - text_width - margin;
     let text_y = margin + text_size;
 
-    draw_text(
-        &distance_text,
-        text_x,
-        text_y,
-        text_size,
-        WHITE,
-    );
+    draw_text(&distance_text, text_x, text_y, text_size, WHITE);
 }
 
 /// Renders the beam ready indicator icon.
@@ -571,7 +653,12 @@ fn render_collision_flash(collision_flash_timer: f32) {
 }
 
 /// Renders the tractor beam as a blue rectangle ending at cave walls
-fn render_tractor_beam(player: &Player, tractor_beam: &TractorBeam, cave: &mut Cave, camera_offset_x: f32) {
+fn render_tractor_beam(
+    player: &Player,
+    tractor_beam: &TractorBeam,
+    cave: &mut Cave,
+    camera_offset_x: f32,
+) {
     if !tractor_beam.is_active() {
         return;
     }
@@ -638,14 +725,28 @@ fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Ca
 
     // Fallback if no segment found (shouldn't happen in normal gameplay)
     match beam_dir {
-        BeamDir::Up => 0.0, // Top of window
+        BeamDir::Up => 0.0,                    // Top of window
         BeamDir::Down => WINDOW_HEIGHT as f32, // Bottom of window
     }
 }
 
-/// Main game loop with menu system integration
+/// Main entry point with command line argument handling
 #[macroquad::main(window_conf)]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Check for headless test flag
+    if args.contains(&"--headless-test".to_string()) {
+        if let Err(e) = headless_test::run_headless_test(5.0) {
+            eprintln!("Headless test failed: {}", e);
+            std::process::exit(1);
+        }
+        println!("Headless test passed!");
+        return;
+    }
+
+    // Initialize audio system (stub implementation)
+    let mut audio_system = AudioSystem::new();
     let mut world = GameWorld::new();
 
     loop {
@@ -658,19 +759,28 @@ async fn main() {
         // Handle keyboard input
         handle_keyboard_input(&mut world);
 
+        // Process audio events from previous frame
+        let audio_events = world.audio_queue.drain();
+        audio_system.process_events(audio_events);
+
         // Handle UI based on current state
         match world.state_machine.current() {
             core::game_state::GameState::Menu => {
                 clear_background(DARKBLUE);
-                handle_main_menu(&mut world);
+                handle_main_menu(&mut world, &mut audio_system);
             }
             core::game_state::GameState::Playing => {
-                update_game_world(&mut world, dt);
+                update_game_world(&mut world, &mut audio_system, dt);
 
                 clear_background(DARKBLUE);
                 render_cave(&mut world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
-                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_tractor_beam(
+                    &world.player,
+                    &world.tractor_beam,
+                    &mut world.cave,
+                    world.camera_offset_x,
+                );
                 render_fuel_bar(&world.fuel);
                 render_distance_display(&world.distance_tracker);
                 render_beam_indicator(&world.tractor_beam);
@@ -681,7 +791,12 @@ async fn main() {
                 clear_background(DARKBLUE);
                 render_cave(&mut world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
-                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x);
+                render_tractor_beam(
+                    &world.player,
+                    &world.tractor_beam,
+                    &mut world.cave,
+                    world.camera_offset_x,
+                );
                 render_fuel_bar(&world.fuel);
                 render_distance_display(&world.distance_tracker);
                 render_beam_indicator(&world.tractor_beam);

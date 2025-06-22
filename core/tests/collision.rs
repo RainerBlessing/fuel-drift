@@ -22,15 +22,19 @@ fn non_overlapping_x_axis() {
     // Rectangle A: (0, 0) to (10, 10)
     // Rectangle B: (20, 0) to (30, 10)
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (20.0, 0.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (20.0, 0.0),
+        (10.0, 10.0)
     ));
 
-    // Rectangle A: (20, 0) to (30, 10)  
+    // Rectangle A: (20, 0) to (30, 10)
     // Rectangle B: (0, 0) to (10, 10)
     assert!(!aabb_overlap(
-        (20.0, 0.0), (10.0, 10.0),
-        (0.0, 0.0), (10.0, 10.0)
+        (20.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 0.0),
+        (10.0, 10.0)
     ));
 }
 
@@ -40,15 +44,19 @@ fn non_overlapping_y_axis() {
     // Rectangle A: (0, 0) to (10, 10)
     // Rectangle B: (0, 20) to (10, 30)
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (0.0, 20.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 20.0),
+        (10.0, 10.0)
     ));
 
     // Rectangle A: (0, 20) to (10, 30)
     // Rectangle B: (0, 0) to (10, 10)
     assert!(!aabb_overlap(
-        (0.0, 20.0), (10.0, 10.0),
-        (0.0, 0.0), (10.0, 10.0)
+        (0.0, 20.0),
+        (10.0, 10.0),
+        (0.0, 0.0),
+        (10.0, 10.0)
     ));
 }
 
@@ -57,14 +65,18 @@ fn non_overlapping_y_axis() {
 fn touching_not_overlapping() {
     // Adjacent on x-axis
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (10.0, 0.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (10.0, 0.0),
+        (10.0, 10.0)
     ));
 
     // Adjacent on y-axis
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (0.0, 10.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+        (10.0, 10.0)
     ));
 }
 
@@ -73,20 +85,26 @@ fn touching_not_overlapping() {
 fn overlapping_rectangles() {
     // Partial overlap
     assert!(aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (5.0, 5.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (5.0, 5.0),
+        (10.0, 10.0)
     ));
 
     // Complete containment - A contains B
     assert!(aabb_overlap(
-        (0.0, 0.0), (20.0, 20.0),
-        (5.0, 5.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (20.0, 20.0),
+        (5.0, 5.0),
+        (10.0, 10.0)
     ));
 
     // Complete containment - B contains A
     assert!(aabb_overlap(
-        (5.0, 5.0), (10.0, 10.0),
-        (0.0, 0.0), (20.0, 20.0)
+        (5.0, 5.0),
+        (10.0, 10.0),
+        (0.0, 0.0),
+        (20.0, 20.0)
     ));
 }
 
@@ -95,14 +113,18 @@ fn overlapping_rectangles() {
 fn overlapping_different_orientations() {
     // T-shaped overlap
     assert!(aabb_overlap(
-        (0.0, 5.0), (20.0, 5.0),  // Horizontal bar
-        (5.0, 0.0), (5.0, 15.0)   // Vertical bar
+        (0.0, 5.0),
+        (20.0, 5.0), // Horizontal bar
+        (5.0, 0.0),
+        (5.0, 15.0) // Vertical bar
     ));
 
     // Corner overlap
     assert!(aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (8.0, 8.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (8.0, 8.0),
+        (10.0, 10.0)
     ));
 }
 
@@ -111,20 +133,26 @@ fn overlapping_different_orientations() {
 fn zero_sized_rectangles() {
     // Zero width rectangle
     assert!(!aabb_overlap(
-        (0.0, 0.0), (0.0, 10.0),
-        (1.0, 0.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (0.0, 10.0),
+        (1.0, 0.0),
+        (10.0, 10.0)
     ));
 
     // Zero height rectangle
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 0.0),
-        (0.0, 1.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (0.0, 1.0),
+        (10.0, 10.0)
     ));
 
     // Two zero-sized rectangles at same position
     assert!(!aabb_overlap(
-        (5.0, 5.0), (0.0, 0.0),
-        (5.0, 5.0), (0.0, 0.0)
+        (5.0, 5.0),
+        (0.0, 0.0),
+        (5.0, 5.0),
+        (0.0, 0.0)
     ));
 }
 
@@ -133,20 +161,26 @@ fn zero_sized_rectangles() {
 fn negative_coordinates() {
     // Both rectangles in negative space
     assert!(aabb_overlap(
-        (-20.0, -20.0), (15.0, 15.0),
-        (-10.0, -10.0), (15.0, 15.0)
+        (-20.0, -20.0),
+        (15.0, 15.0),
+        (-10.0, -10.0),
+        (15.0, 15.0)
     ));
 
     // One in negative, one in positive
     assert!(aabb_overlap(
-        (-10.0, -10.0), (20.0, 20.0),
-        (5.0, 5.0), (10.0, 10.0)
+        (-10.0, -10.0),
+        (20.0, 20.0),
+        (5.0, 5.0),
+        (10.0, 10.0)
     ));
 
     // Non-overlapping in negative space
     assert!(!aabb_overlap(
-        (-30.0, -20.0), (10.0, 10.0),
-        (-10.0, -20.0), (10.0, 10.0)
+        (-30.0, -20.0),
+        (10.0, 10.0),
+        (-10.0, -20.0),
+        (10.0, 10.0)
     ));
 }
 
@@ -155,13 +189,17 @@ fn negative_coordinates() {
 fn floating_point_precision() {
     // Very small overlap
     assert!(aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (9.999, 0.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (9.999, 0.0),
+        (10.0, 10.0)
     ));
 
     // Very small gap
     assert!(!aabb_overlap(
-        (0.0, 0.0), (10.0, 10.0),
-        (10.001, 0.0), (10.0, 10.0)
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (10.001, 0.0),
+        (10.0, 10.0)
     ));
 }

@@ -150,7 +150,8 @@ fn multiple_burn_cycles() {
     // Burn until empty
     for i in 0..5 {
         let became_empty = fuel.burn(DT, true);
-        if i == 4 { // Last frame
+        if i == 4 {
+            // Last frame
             assert!(became_empty);
         } else {
             assert!(!became_empty);
@@ -166,9 +167,9 @@ fn mixed_consumption_cycles() {
     let mut fuel = Fuel::new(10.0, 60.0);
 
     // Consume, skip, consume, skip pattern
-    fuel.burn(DT, true);  // 9.0
+    fuel.burn(DT, true); // 9.0
     fuel.burn(DT, false); // 9.0 (no change)
-    fuel.burn(DT, true);  // 8.0
+    fuel.burn(DT, true); // 8.0
     fuel.burn(DT, false); // 8.0 (no change)
 
     assert_float_eq(fuel.current, 8.0);
