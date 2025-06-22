@@ -1,3 +1,5 @@
+// core/src/lib.rs
+
 /// Pure mathematical operations for the Fuel Drift game.
 ///
 /// This module contains all mathematical computations without any graphics dependencies,
@@ -17,12 +19,22 @@ pub mod game_state;
 /// Pure player logic without rendering concerns.
 pub mod player;
 
-/// Cave generation and mapub nagement.
+/// Cave generation and management.
 ///
 /// Procedural cave generation for endless gameplay.
 pub mod cave;
+
+/// Collision detection system.
+///
+/// AABB collision detection for game objects.
 pub mod collision;
+
 /// Fuel system for consumption and refilling mechanics.
 ///
 /// Manages fuel levels, burn rates, and empty state detection.
 pub mod fuel;
+
+/// Tractor beam system for attraction and repulsion mechanics.
+///
+/// Manages beam activation, direction, and timing without rendering concerns.
+pub mod tractor;

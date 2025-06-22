@@ -26,6 +26,8 @@ pub struct PlayerInput {
     pub down: bool,
     pub left: bool,
     pub right: bool,
+    pub tractor_up: bool,    // W key for upward tractor beam
+    pub tractor_down: bool,  // S key for downward tractor beam
 }
 
 /// Player physics constants.

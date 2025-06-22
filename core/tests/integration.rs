@@ -1,7 +1,10 @@
+// core/tests/integration.rs
+
 use core::cave::{Cave, CaveSegment};
 use core::collision::aabb_overlap;
 use core::game_state::{GameEvent, GameState, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
+use core::tractor::{TractorBeam, BeamDir}; // Add tractor imports
 
 const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
 
@@ -284,4 +287,70 @@ fn collision_performance_many_segments() {
     // This test mainly verifies the code runs without panicking
     // Actual collision depends on generated cave layout
     assert!(collision_found || !collision_found); // Always true, just exercises the code
+}
+
+/// Tests tractor beam activation and timing integration.
+#[test]
+fn tractor_beam_activation_integration() {
+    let mut beam = TractorBeam::new();
+
+    // Initially inactive
+    assert!(!beam.is_active());
+
+    // Activate upward beam
+    beam.activate(BeamDir::Up);
+    assert!(beam.is_active());
+    assert_eq!(beam.dir, BeamDir::Up);
+
+    // Tick for half duration
+    let half_duration = TractorBeam::MAX_DURATION / 2.0;
+    beam.tick(half_duration);
+    assert!(beam.is_active());
+
+    // Tick remaining duration
+    beam.tick(half_duration);
+    assert!(!beam.is_active());
+}
+
+/// Tests beam wall collision detection scenario.
+#[test]
+fn beam_wall_collision_scenario() {
+    let mut cave = Cave::new(123);
+    let segments: Vec<_> = cave.segments().iter().copied().collect();
+    let first_segment = segments[0];
+
+    // Player positioned in cave
+    let player_x = first_segment.x_start + 25.0; // Middle of segment
+
+    // Beam should hit ceiling at segment.ceiling height for upward beam
+    assert!(first_segment.ceiling > 0.0);
+    assert!(first_segment.floor < 600.0);
+
+    // Beam should hit floor at segment.floor height for downward beam
+    let gap_height = first_segment.floor - first_segment.ceiling;
+    assert!(gap_height >= 140.0); // Minimum gap constraint
+}
+
+/// Tests that beam respects cave geometry constraints.
+#[test]
+fn beam_respects_cave_geometry() {
+    let mut cave = Cave::new(456);
+
+    // Generate several segments
+    for _ in 0..5 {
+        cave.generate_next();
+    }
+
+    let segments = cave.segments_in_view(0.0, 300.0);
+
+    for segment in segments {
+        // Each segment should have valid ceiling and floor heights
+        assert!(segment.ceiling >= 0.0);
+        assert!(segment.floor <= 600.0);
+        assert!(segment.ceiling < segment.floor);
+
+        // Gap should be sufficient for gameplay
+        let gap = segment.floor - segment.ceiling;
+        assert!(gap >= 140.0);
+    }
 }

@@ -1,9 +1,12 @@
+// game/src/main.rs
+
 use macroquad::prelude::*;
 use core::game_state::{GameEvent, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
 use core::cave::Cave;
 use core::collision::aabb_overlap;
 use core::fuel::Fuel;
+use core::tractor::{TractorBeam, BeamDir}; // Add tractor beam imports
 
 /// Window configuration constants
 const WINDOW_WIDTH: i32 = 800;
@@ -34,6 +37,7 @@ struct GameWorld {
     player: Player,
     fuel: Fuel,
     cave: Cave,
+    tractor_beam: TractorBeam,  // Add tractor beam
     camera_offset_x: f32,
     collision_flash_timer: f32,
 }
@@ -45,6 +49,7 @@ impl GameWorld {
             player: Player::new(Vec2::new(100.0, 300.0)),
             fuel: Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE),
             cave: Cave::new(42), // Fixed seed for consistent cave
+            tractor_beam: TractorBeam::new(),  // Initialize tractor beam
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
         }
@@ -54,6 +59,7 @@ impl GameWorld {
     fn reset(&mut self) {
         self.player = Player::new(Vec2::new(100.0, 300.0));
         self.fuel = Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE);
+        self.tractor_beam = TractorBeam::new();  // Reset tractor beam
         self.camera_offset_x = 0.0;
         self.collision_flash_timer = 0.0;
         // Keep the same cave for consistency
@@ -106,13 +112,15 @@ fn handle_state_input(world: &mut GameWorld) {
     }
 }
 
-/// Collects player input for physics simulation
+/// Collects player input for physics simulation and tractor beam control
 fn collect_player_input() -> PlayerInput {
     PlayerInput {
         up: is_key_down(KeyCode::Up),
         down: is_key_down(KeyCode::Down),
         left: is_key_down(KeyCode::Left),
         right: is_key_down(KeyCode::Right),
+        tractor_up: is_key_pressed(KeyCode::W),      // W for upward beam
+        tractor_down: is_key_pressed(KeyCode::S),    // S for downward beam
     }
 }
 
@@ -168,15 +176,27 @@ fn update_collision_flash(world: &mut GameWorld, dt: f32) {
     }
 }
 
-/// Updates game world physics and collision detection
+/// Updates game world physics, tractor beam, and collision detection
 fn update_game_world(world: &mut GameWorld, dt: f32) {
     match world.state_machine.current() {
         core::game_state::GameState::Playing => {
             // Update camera scroll
             world.camera_offset_x += SCROLL_SPEED * dt;
 
-            // Collect input and check fuel consumption
+            // Collect input
             let input = collect_player_input();
+
+            // Handle tractor beam activation
+            if input.tractor_up {
+                world.tractor_beam.activate(BeamDir::Up);
+            }
+            if input.tractor_down {
+                world.tractor_beam.activate(BeamDir::Down);
+            }
+
+            // Update tractor beam timer
+            world.tractor_beam.tick(dt);
+
             let consuming = is_consuming_fuel(input);
 
             // Update fuel and check for empty state
@@ -336,8 +356,8 @@ fn render_ui(state_machine: &StateMachine, fuel: &Fuel) {
                 GRAY,
             );
             draw_text(
-                "Use arrow keys to control - Watch your fuel!",
-                WINDOW_WIDTH as f32 / 2.0 - 140.0,
+                "Arrow keys: Move | W/S: Tractor Beam | Watch your fuel!",
+                WINDOW_WIDTH as f32 / 2.0 - 180.0,
                 WINDOW_HEIGHT as f32 / 2.0 + 30.0,
                 16.0,
                 GRAY,
@@ -345,7 +365,7 @@ fn render_ui(state_machine: &StateMachine, fuel: &Fuel) {
         }
         core::game_state::GameState::Playing => {
             render_fuel_bar(fuel);
-            draw_text("Playing - Don't hit the walls or run out of fuel!", 10.0, 60.0, 18.0, WHITE);
+            draw_text("Playing - Don't hit walls or run out of fuel! W/S for tractor beam.", 10.0, 60.0, 18.0, WHITE);
         }
         core::game_state::GameState::Paused => {
             // Semi-transparent overlay
@@ -411,6 +431,83 @@ fn render_ui(state_machine: &StateMachine, fuel: &Fuel) {
     }
 }
 
+/// Renders the tractor beam as a blue rectangle ending at cave walls
+fn render_tractor_beam(player: &Player, tractor_beam: &TractorBeam, cave: &mut Cave, camera_offset_x: f32) {
+    if !tractor_beam.is_active() {
+        return;
+    }
+
+    let screen_x = player.pos.x - camera_offset_x;
+    let beam_width = 32.0; // 16px on each side of player center
+    let beam_x = screen_x - beam_width / 2.0;
+
+    // Get cave segments at player position to find wall heights
+    let wall_height = get_cave_wall_height_at_position(player.pos.x, tractor_beam.dir, cave);
+
+    match tractor_beam.dir {
+        BeamDir::Up => {
+            // Beam from player to ceiling
+            let beam_start_y = wall_height; // Ceiling height
+            let beam_height = player.pos.y - wall_height;
+
+            // Only draw if there's space between player and ceiling
+            if beam_height > 0.0 {
+                draw_rectangle(
+                    beam_x,
+                    beam_start_y,
+                    beam_width,
+                    beam_height,
+                    Color::new(0.0, 0.5, 1.0, 0.6), // Semi-transparent blue
+                );
+            }
+        }
+        BeamDir::Down => {
+            // Beam from player to floor
+            let beam_start_y = player.pos.y;
+            let beam_height = wall_height - player.pos.y; // Floor height - player position
+
+            // Only draw if there's space between player and floor
+            if beam_height > 0.0 {
+                draw_rectangle(
+                    beam_x,
+                    beam_start_y,
+                    beam_width,
+                    beam_height,
+                    Color::new(0.0, 0.5, 1.0, 0.6), // Semi-transparent blue
+                );
+            }
+        }
+    }
+}
+
+/// Gets the cave wall height (ceiling or floor) at the specified x position.
+///
+/// Returns the y-coordinate of the wall that the beam should hit.
+/// For Up direction: returns ceiling height
+/// For Down direction: returns floor height
+fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Cave) -> f32 {
+    // Get cave segments around player position
+    let view_start = x_pos - 50.0; // Small buffer around player
+    let view_end = x_pos + 50.0;
+    let segments = cave.segments_in_view(view_start, view_end);
+
+    // Find the segment that contains the player's x position
+    for segment in segments {
+        if x_pos >= segment.x_start && x_pos < segment.x_end() {
+            return match beam_dir {
+                BeamDir::Up => segment.ceiling,
+                BeamDir::Down => segment.floor,
+            };
+        }
+    }
+
+    // Fallback if no segment found (shouldn't happen in normal gameplay)
+    match beam_dir {
+        BeamDir::Up => 0.0, // Top of window
+        BeamDir::Down => WINDOW_HEIGHT as f32, // Bottom of window
+    }
+}
+
 /// Main game loop with clear separation of concerns
 #[macroquad::main(window_conf)]
 async fn main() {
@@ -433,6 +530,7 @@ async fn main() {
             core::game_state::GameState::Playing | core::game_state::GameState::Paused => {
                 render_cave(&mut world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
+                render_tractor_beam(&world.player, &world.tractor_beam, &mut world.cave, world.camera_offset_x); // Updated call with cave parameter
             }
             _ => {}
         }
@@ -445,4 +543,6 @@ async fn main() {
 
         next_frame().await;
     }
+    
+    
 }
