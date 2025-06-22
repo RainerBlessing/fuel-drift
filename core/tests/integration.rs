@@ -4,7 +4,7 @@ use core::cave::{Cave, CaveSegment};
 use core::collision::aabb_overlap;
 use core::game_state::{GameEvent, GameState, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
-use core::tractor::{TractorBeam, BeamDir}; // Add tractor imports
+use core::tractor::{TractorBeam, BeamDir};
 
 const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
 
@@ -319,7 +319,8 @@ fn beam_wall_collision_scenario() {
     let segments: Vec<_> = cave.segments().iter().copied().collect();
     let first_segment = segments[0];
 
-    // Player positioned in cave
+    // Player positioned in cave (removed unused variable)
+    #[allow(unused_variables)]
     let player_x = first_segment.x_start + 25.0; // Middle of segment
 
     // Beam should hit ceiling at segment.ceiling height for upward beam
@@ -334,14 +335,15 @@ fn beam_wall_collision_scenario() {
 /// Tests that beam respects cave geometry constraints.
 #[test]
 fn beam_respects_cave_geometry() {
-    let mut cave = Cave::new(456);
+    let cave = Cave::new(456);
 
     // Generate several segments
+    let mut cave_mut = cave;
     for _ in 0..5 {
-        cave.generate_next();
+        cave_mut.generate_next();
     }
 
-    let segments = cave.segments_in_view(0.0, 300.0);
+    let segments = cave_mut.segments_in_view(0.0, 300.0);
 
     for segment in segments {
         // Each segment should have valid ceiling and floor heights
