@@ -3,6 +3,7 @@ use core::game_state::{GameEvent, StateMachine};
 use core::player::{Player, PlayerInput, Vec2};
 use core::cave::Cave;
 use core::collision::aabb_overlap;
+use core::fuel::Fuel;
 
 /// Window configuration constants
 const WINDOW_WIDTH: i32 = 800;
@@ -13,13 +14,25 @@ const WINDOW_TITLE: &str = "Fuel Drift";
 const SCROLL_SPEED: f32 = 120.0; // pixels/second
 const PLAYER_SIZE: (f32, f32) = (30.0, 18.0);
 
+/// Fuel constants
+const INITIAL_FUEL: f32 = 100.0;
+const FUEL_BURN_RATE: f32 = 20.0; // fuel per second when consuming
+
 /// Collision flash constants
 const COLLISION_FLASH_DURATION: f32 = 0.3; // seconds
+
+/// UI constants
+const FUEL_BAR_WIDTH: f32 = 200.0;
+const FUEL_BAR_HEIGHT: f32 = 20.0;
+const FUEL_BAR_X: f32 = 10.0;
+const FUEL_BAR_Y: f32 = 10.0;
+const LOW_FUEL_THRESHOLD: f32 = 0.2;
 
 /// Game state container following Single Responsibility Principle
 struct GameWorld {
     state_machine: StateMachine,
     player: Player,
+    fuel: Fuel,
     cave: Cave,
     camera_offset_x: f32,
     collision_flash_timer: f32,
@@ -30,6 +43,7 @@ impl GameWorld {
         Self {
             state_machine: StateMachine::new(),
             player: Player::new(Vec2::new(100.0, 300.0)),
+            fuel: Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE),
             cave: Cave::new(42), // Fixed seed for consistent cave
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
@@ -39,6 +53,7 @@ impl GameWorld {
     /// Resets the game world for a new game.
     fn reset(&mut self) {
         self.player = Player::new(Vec2::new(100.0, 300.0));
+        self.fuel = Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE);
         self.camera_offset_x = 0.0;
         self.collision_flash_timer = 0.0;
         // Keep the same cave for consistency
@@ -101,6 +116,13 @@ fn collect_player_input() -> PlayerInput {
     }
 }
 
+/// Checks if player is currently consuming fuel.
+///
+/// Fuel is consumed when any movement input is active.
+fn is_consuming_fuel(input: PlayerInput) -> bool {
+    input.up || input.down || input.left || input.right
+}
+
 /// Checks for collision between player and cave walls.
 ///
 /// Returns true if collision detected, false otherwise.
@@ -153,9 +175,22 @@ fn update_game_world(world: &mut GameWorld, dt: f32) {
             // Update camera scroll
             world.camera_offset_x += SCROLL_SPEED * dt;
 
-            // Update player physics
+            // Collect input and check fuel consumption
             let input = collect_player_input();
-            world.player.tick(dt, input);
+            let consuming = is_consuming_fuel(input);
+
+            // Update fuel and check for empty state
+            let fuel_became_empty = world.fuel.burn(dt, consuming);
+            if fuel_became_empty {
+                world.state_machine.handle_event(GameEvent::Dead);
+                world.collision_flash_timer = COLLISION_FLASH_DURATION;
+                return; // Don't update player if fuel is empty
+            }
+
+            // Update player physics only if fuel is available
+            if !world.fuel.is_empty() {
+                world.player.tick(dt, input);
+            }
 
             // Check for collisions
             if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
@@ -215,6 +250,55 @@ fn render_player(player: &Player, camera_offset_x: f32) {
     );
 }
 
+/// Renders the fuel bar UI element.
+fn render_fuel_bar(fuel: &Fuel) {
+    let ratio = fuel.ratio();
+
+    // Background bar (dark gray)
+    draw_rectangle(
+        FUEL_BAR_X,
+        FUEL_BAR_Y,
+        FUEL_BAR_WIDTH,
+        FUEL_BAR_HEIGHT,
+        DARKGRAY,
+    );
+
+    // Fuel level bar
+    let fuel_width = FUEL_BAR_WIDTH * ratio;
+    let fuel_color = if ratio < LOW_FUEL_THRESHOLD {
+        RED
+    } else {
+        GREEN
+    };
+
+    draw_rectangle(
+        FUEL_BAR_X,
+        FUEL_BAR_Y,
+        fuel_width,
+        FUEL_BAR_HEIGHT,
+        fuel_color,
+    );
+
+    // Border
+    draw_rectangle_lines(
+        FUEL_BAR_X,
+        FUEL_BAR_Y,
+        FUEL_BAR_WIDTH,
+        FUEL_BAR_HEIGHT,
+        2.0,
+        WHITE,
+    );
+
+    // Fuel text
+    draw_text(
+        "FUEL",
+        FUEL_BAR_X,
+        FUEL_BAR_Y + FUEL_BAR_HEIGHT + 15.0,
+        16.0,
+        WHITE,
+    );
+}
+
 /// Renders collision flash effect.
 fn render_collision_flash(collision_flash_timer: f32) {
     if collision_flash_timer > 0.0 {
@@ -232,7 +316,7 @@ fn render_collision_flash(collision_flash_timer: f32) {
 }
 
 /// Renders UI overlays based on game state
-fn render_ui(state_machine: &StateMachine) {
+fn render_ui(state_machine: &StateMachine, fuel: &Fuel) {
     let current_state = state_machine.current();
 
     match current_state {
@@ -252,15 +336,16 @@ fn render_ui(state_machine: &StateMachine) {
                 GRAY,
             );
             draw_text(
-                "Use arrow keys to control",
-                WINDOW_WIDTH as f32 / 2.0 - 100.0,
+                "Use arrow keys to control - Watch your fuel!",
+                WINDOW_WIDTH as f32 / 2.0 - 140.0,
                 WINDOW_HEIGHT as f32 / 2.0 + 30.0,
                 16.0,
                 GRAY,
             );
         }
         core::game_state::GameState::Playing => {
-            draw_text("Playing - Don't hit the walls!", 10.0, 30.0, 20.0, WHITE);
+            render_fuel_bar(fuel);
+            draw_text("Playing - Don't hit the walls or run out of fuel!", 10.0, 60.0, 18.0, WHITE);
         }
         core::game_state::GameState::Paused => {
             // Semi-transparent overlay
@@ -295,6 +380,12 @@ fn render_ui(state_machine: &StateMachine) {
             );
         }
         core::game_state::GameState::GameOver => {
+            let death_message = if fuel.is_empty() {
+                "OUT OF FUEL!"
+            } else {
+                "CRASHED!"
+            };
+
             draw_text(
                 "GAME OVER",
                 WINDOW_WIDTH as f32 / 2.0 - 70.0,
@@ -303,7 +394,7 @@ fn render_ui(state_machine: &StateMachine) {
                 RED,
             );
             draw_text(
-                "You hit the wall!",
+                death_message,
                 WINDOW_WIDTH as f32 / 2.0 - 65.0,
                 WINDOW_HEIGHT as f32 / 2.0 + 10.0,
                 18.0,
@@ -350,7 +441,7 @@ async fn main() {
         render_collision_flash(world.collision_flash_timer);
 
         // Render UI
-        render_ui(&world.state_machine);
+        render_ui(&world.state_machine, &world.fuel);
 
         next_frame().await;
     }

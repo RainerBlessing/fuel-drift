@@ -17,8 +17,12 @@ pub mod game_state;
 /// Pure player logic without rendering concerns.
 pub mod player;
 
-/// Cave generation and management.
+/// Cave generation and mapub nagement.
 ///
 /// Procedural cave generation for endless gameplay.
 pub mod cave;
 pub mod collision;
+/// Fuel system for consumption and refilling mechanics.
+///
+/// Manages fuel levels, burn rates, and empty state detection.
+pub mod fuel;
