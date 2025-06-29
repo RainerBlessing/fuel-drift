@@ -684,8 +684,23 @@ fn handle_player_input_and_physics(world: &mut GameWorld, audio_system: &mut Aud
     }
 }
 
+/// Updates tractor beam pickup attraction effects
+fn update_tractor_beam_pickup_attraction(world: &mut GameWorld, dt: f32) {
+    let player_pos = (world.player.pos.x, world.player.pos.y);
+    
+    // Update pickup attraction based on tractor beam state
+    world.cave.pickup_manager_mut().update_tractor_beam_attraction(
+        &world.tractor_beam,
+        player_pos,
+        dt,
+    );
+}
+
 /// Checks collisions and handles pickup collection
-fn check_collisions_and_pickups(world: &mut GameWorld, audio_system: &mut AudioSystem) {
+fn check_collisions_and_pickups(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: f32) {
+    // Update tractor beam pickup attraction first
+    update_tractor_beam_pickup_attraction(world, dt);
+    
     // Check for collisions with walls
     if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
         trigger_death(world, audio_system);
@@ -735,7 +750,7 @@ fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: 
             
             // Only check collisions if still playing (fuel didn't run out)
             if world.state_machine.current() == core::game_state::GameState::Playing {
-                check_collisions_and_pickups(world, audio_system);
+                check_collisions_and_pickups(world, audio_system, dt);
             }
         }
         _ => {
