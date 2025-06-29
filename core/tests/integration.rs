@@ -185,7 +185,7 @@ fn multiple_segments_collision() {
 
     // Generate a few segments
     for _ in 0..5 {
-        cave.generate_next();
+        cave.generate_next(300.0); // Default fuel spawn distance
     }
 
     let segments: Vec<_> = cave.segments().iter().copied().collect();
@@ -323,13 +323,13 @@ fn collision_performance_many_segments() {
 
     // Generate many segments
     for _ in 0..50 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     let player_pos = (500.0, 250.0); // Middle position
 
     // Get segments in view
-    let segments = cave.segments_in_view(400.0, 600.0);
+    let segments = cave.segments_in_view(400.0, 600.0, 300.0);
 
     // Check collision with all segments (should be fast)
     let mut collision_found = false;
@@ -407,10 +407,10 @@ fn beam_respects_cave_geometry() {
     // Generate several segments
     let mut cave_mut = cave;
     for _ in 0..5 {
-        cave_mut.generate_next();
+        cave_mut.generate_next(300.0);
     }
 
-    let segments = cave_mut.segments_in_view(0.0, 300.0);
+    let segments = cave_mut.segments_in_view(0.0, 300.0, 300.0);
 
     for segment in segments {
         // Each segment should have valid ceiling and floor heights

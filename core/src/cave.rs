@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use crate::pickup::PickupManager;
 
 /// A single segment of the cave with ceiling and floor heights.
 ///
@@ -78,6 +79,7 @@ pub struct Cave {
     segments: VecDeque<CaveSegment>,
     rng: SimpleRng,
     next_x: f32,
+    pickup_manager: PickupManager,
 }
 
 impl Cave {
@@ -87,6 +89,7 @@ impl Cave {
             segments: VecDeque::new(),
             rng: SimpleRng::new(seed),
             next_x: 0.0,
+            pickup_manager: PickupManager::new(seed),
         };
 
         // Generate initial segment
@@ -110,7 +113,7 @@ impl Cave {
     /// Generates the next cave segment with random variation.
     ///
     /// Ensures minimum gap is maintained and segments are contiguous.
-    pub fn generate_next(&mut self) {
+    pub fn generate_next(&mut self, fuel_spawn_distance: f32) {
         let prev_segment = self
             .segments
             .back()
@@ -142,6 +145,15 @@ impl Cave {
             CaveConstants::SEGMENT_WIDTH,
         );
 
+        // Check if we should spawn a pickup in this segment
+        if self.pickup_manager.should_spawn_pickup(segment.x_start + segment.width / 2.0, fuel_spawn_distance) {
+            self.pickup_manager.spawn_fuel_pickup(
+                segment.x_start + segment.width / 2.0,
+                segment.ceiling,
+                segment.floor,
+            );
+        }
+
         self.segments.push_back(segment);
         self.next_x = segment.x_end();
 
@@ -155,10 +167,10 @@ impl Cave {
     /// Returns segments visible in the given x range.
     ///
     /// Generates new segments as needed to fill the view.
-    pub fn segments_in_view(&mut self, x_min: f32, x_max: f32) -> Vec<CaveSegment> {
+    pub fn segments_in_view(&mut self, x_min: f32, x_max: f32, fuel_spawn_distance: f32) -> Vec<CaveSegment> {
         // Generate segments until we cover the view range
         while self.next_x < x_max + CaveConstants::SEGMENT_WIDTH {
-            self.generate_next();
+            self.generate_next(fuel_spawn_distance);
         }
 
         // Return segments that intersect with the view range
@@ -172,5 +184,15 @@ impl Cave {
     /// Gets all current segments (for testing).
     pub fn segments(&self) -> &VecDeque<CaveSegment> {
         &self.segments
+    }
+
+    /// Gets a reference to the pickup manager.
+    pub fn pickup_manager(&self) -> &PickupManager {
+        &self.pickup_manager
+    }
+
+    /// Gets a mutable reference to the pickup manager.
+    pub fn pickup_manager_mut(&mut self) -> &mut PickupManager {
+        &mut self.pickup_manager
     }
 }

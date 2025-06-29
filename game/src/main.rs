@@ -13,9 +13,12 @@ pub fn wasm_main() {
 use core::audio::{AudioEvent, AudioEventQueue, AudioState};
 use core::cave::Cave;
 use core::collision::aabb_overlap;
+use core::constants::{FuelConstants, PickupConstants};
 use core::distance::DistanceTracker;
 use core::fuel::Fuel;
 use core::game_state::{GameEvent, StateMachine};
+use core::level::LevelManager;
+use core::pickup::PickupType;
 use core::player::{Player, PlayerInput, Vec2};
 use core::tractor::{BeamDir, TractorBeam};
 use macroquad::prelude::*;
@@ -154,6 +157,7 @@ struct GameWorld {
     cave: Cave,
     tractor_beam: TractorBeam,
     distance_tracker: DistanceTracker,
+    level_manager: LevelManager,
     audio_queue: AudioEventQueue,
     camera_offset_x: f32,
     collision_flash_timer: f32,
@@ -170,12 +174,20 @@ impl GameWorld {
             cave: Cave::new(42), // Fixed seed for consistent cave
             tractor_beam: TractorBeam::new(),
             distance_tracker: DistanceTracker::new(),
+            level_manager: LevelManager::new(),
             audio_queue: AudioEventQueue::new(),
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
             should_quit: false,
             menu_state: MenuState::new(),
         }
+    }
+    
+    /// Gets the current level's fuel spawn distance, with fallback to default
+    fn current_fuel_spawn_distance(&self) -> f32 {
+        self.level_manager.current_level()
+            .map(|level| level.fuel_spawn_distance)
+            .unwrap_or(PickupConstants::DEFAULT_FUEL_SPAWN_DISTANCE)
     }
 
     /// Resets the game world for a new game.
@@ -184,9 +196,11 @@ impl GameWorld {
         self.fuel = Fuel::new(INITIAL_FUEL, FUEL_BURN_RATE);
         self.tractor_beam = TractorBeam::new();
         self.distance_tracker.reset();
+        self.level_manager.reset();
         self.camera_offset_x = 0.0;
         self.collision_flash_timer = 0.0;
-        // Keep the same cave for consistency
+        // Reset cave with new pickup manager
+        self.cave = Cave::new(42);
     }
 }
 
@@ -593,7 +607,8 @@ fn check_player_collision(player: &Player, cave: &mut Cave, camera_offset_x: f32
 
     let view_start = camera_offset_x;
     let view_end = camera_offset_x + WINDOW_WIDTH as f32;
-    let segments = cave.segments_in_view(view_start, view_end);
+    // Default fuel spawn distance for collision detection
+    let segments = cave.segments_in_view(view_start, view_end, PickupConstants::DEFAULT_FUEL_SPAWN_DISTANCE);
 
     for segment in segments {
         // Check collision with ceiling
@@ -626,60 +641,101 @@ fn update_collision_flash(world: &mut GameWorld, dt: f32) {
     }
 }
 
+/// Updates camera position and distance tracking
+fn update_camera_and_distance(world: &mut GameWorld, dt: f32) {
+    world.camera_offset_x += SCROLL_SPEED * dt;
+    world.distance_tracker.update(SCROLL_SPEED, dt);
+}
+
+/// Handles player input, physics, and tractor beam
+fn handle_player_input_and_physics(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: f32) {
+    let input = collect_player_input();
+    
+    // Handle tractor beam activation
+    if input.tractor_up {
+        world.tractor_beam.activate(BeamDir::Up);
+        world.audio_queue.push(AudioEvent::BeamActivation);
+    }
+    if input.tractor_down {
+        world.tractor_beam.activate(BeamDir::Down);
+        world.audio_queue.push(AudioEvent::BeamActivation);
+    }
+
+    // Update tractor beam timer
+    world.tractor_beam.tick(dt);
+
+    let consuming = is_consuming_fuel(input);
+
+    // Update thruster audio
+    if let Some(thruster_event) = audio_system.update_thruster(consuming) {
+        world.audio_queue.push(thruster_event);
+    }
+
+    // Update fuel and check for empty state
+    let fuel_became_empty = world.fuel.burn(dt, consuming);
+    if fuel_became_empty {
+        trigger_death(world, audio_system);
+        return;
+    }
+
+    // Update player physics only if fuel is available
+    if !world.fuel.is_empty() {
+        world.player.tick(dt, input, SCROLL_SPEED, world.camera_offset_x);
+    }
+}
+
+/// Checks collisions and handles pickup collection
+fn check_collisions_and_pickups(world: &mut GameWorld, audio_system: &mut AudioSystem) {
+    // Check for collisions with walls
+    if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
+        trigger_death(world, audio_system);
+        return;
+    }
+    
+    // Check for pickup collection
+    if let Some(pickup_index) = world.cave.pickup_manager().check_collision(
+        (world.player.pos.x - PLAYER_SIZE.0 / 2.0, world.player.pos.y - PLAYER_SIZE.1 / 2.0),
+        PLAYER_SIZE,
+    ) {
+        if let Some(pickup_type) = world.cave.pickup_manager_mut().collect_pickup(pickup_index) {
+            handle_pickup_collection(world, pickup_type);
+        }
+    }
+    
+    // Cleanup old pickups
+    world.cave.pickup_manager_mut().cleanup_old_pickups(world.camera_offset_x);
+}
+
+/// Handles pickup collection effects
+fn handle_pickup_collection(world: &mut GameWorld, pickup_type: PickupType) {
+    match pickup_type {
+        PickupType::Fuel => {
+            // Refill fuel based on configured percentage
+            let refill_amount = world.fuel.max * FuelConstants::REFILL_PERCENTAGE;
+            world.fuel.refill(refill_amount);
+            world.audio_queue.push(AudioEvent::FuelPickup);
+        }
+    }
+}
+
+/// Triggers death state and effects
+fn trigger_death(world: &mut GameWorld, audio_system: &mut AudioSystem) {
+    world.audio_queue.push(AudioEvent::Death);
+    world.state_machine.handle_event(GameEvent::Dead);
+    world.collision_flash_timer = COLLISION_FLASH_DURATION;
+    audio_system.stop_all();
+}
+
 /// Updates game world physics, tractor beam, and collision detection
 fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: f32) {
     match world.state_machine.current() {
         core::game_state::GameState::Playing => {
-            // Update camera scroll
-            world.camera_offset_x += SCROLL_SPEED * dt;
-
-            // Update distance tracker
-            world.distance_tracker.update(SCROLL_SPEED, dt);
-
-            // Collect input
-            let input = collect_player_input();
-
-            // Handle tractor beam activation
-            if input.tractor_up {
-                world.tractor_beam.activate(BeamDir::Up);
-                world.audio_queue.push(AudioEvent::BeamActivation);
-            }
-            if input.tractor_down {
-                world.tractor_beam.activate(BeamDir::Down);
-                world.audio_queue.push(AudioEvent::BeamActivation);
-            }
-
-            // Update tractor beam timer
-            world.tractor_beam.tick(dt);
-
-            let consuming = is_consuming_fuel(input);
-
-            // Update thruster audio
-            if let Some(thruster_event) = audio_system.update_thruster(consuming) {
-                world.audio_queue.push(thruster_event);
-            }
-
-            // Update fuel and check for empty state
-            let fuel_became_empty = world.fuel.burn(dt, consuming);
-            if fuel_became_empty {
-                world.audio_queue.push(AudioEvent::Death);
-                world.state_machine.handle_event(GameEvent::Dead);
-                world.collision_flash_timer = COLLISION_FLASH_DURATION;
-                audio_system.stop_all();
-                return;
-            }
-
-            // Update player physics only if fuel is available
-            if !world.fuel.is_empty() {
-                world.player.tick(dt, input, SCROLL_SPEED, world.camera_offset_x);
-            }
-
-            // Check for collisions
-            if check_player_collision(&world.player, &mut world.cave, world.camera_offset_x) {
-                world.audio_queue.push(AudioEvent::Death);
-                world.state_machine.handle_event(GameEvent::Dead);
-                world.collision_flash_timer = COLLISION_FLASH_DURATION;
-                audio_system.stop_all();
+            update_camera_and_distance(world, dt);
+            handle_player_input_and_physics(world, audio_system, dt);
+            
+            // Only check collisions if still playing (fuel didn't run out)
+            if world.state_machine.current() == core::game_state::GameState::Playing {
+                check_collisions_and_pickups(world, audio_system);
             }
         }
         _ => {
@@ -693,11 +749,11 @@ fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: 
 }
 
 /// Renders the cave segments
-fn render_cave(cave: &mut Cave, camera_offset_x: f32) {
+fn render_cave(cave: &mut Cave, fuel_spawn_distance: f32, camera_offset_x: f32) {
     let view_start = camera_offset_x;
     let view_end = camera_offset_x + WINDOW_WIDTH as f32;
 
-    let segments = cave.segments_in_view(view_start, view_end);
+    let segments = cave.segments_in_view(view_start, view_end, fuel_spawn_distance);
     for segment in segments {
         let screen_x = segment.x_start - camera_offset_x;
 
@@ -712,6 +768,32 @@ fn render_cave(cave: &mut Cave, camera_offset_x: f32) {
             WINDOW_HEIGHT as f32 - segment.floor,
             BLACK,
         );
+    }
+}
+
+/// Renders fuel pickups
+fn render_pickups(cave: &Cave, camera_offset_x: f32) {
+    let view_start = camera_offset_x;
+    let view_end = camera_offset_x + WINDOW_WIDTH as f32;
+    
+    let pickups = cave.pickup_manager().get_pickups_in_range(view_start, view_end);
+    for pickup in pickups {
+        let screen_x = pickup.position.0 - camera_offset_x;
+        let screen_y = pickup.position.1;
+        
+        // Draw fuel depot as a yellow/orange rectangle
+        draw_rectangle(
+            screen_x,
+            screen_y,
+            PickupConstants::SIZE,
+            PickupConstants::SIZE,
+            ORANGE,
+        );
+        
+        // Draw a small "F" for fuel
+        let text_offset_x = PickupConstants::SIZE * 0.3; // 30% of size
+        let text_offset_y = PickupConstants::SIZE * 0.75; // 75% of size
+        draw_text("F", screen_x + text_offset_x, screen_y + text_offset_y, 16.0, WHITE);
     }
 }
 
@@ -938,7 +1020,8 @@ fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Ca
     // Get cave segments around player position
     let view_start = x_pos - 50.0; // Small buffer around player
     let view_end = x_pos + 50.0;
-    let segments = cave.segments_in_view(view_start, view_end);
+    // Default fuel spawn distance for wall detection
+    let segments = cave.segments_in_view(view_start, view_end, PickupConstants::DEFAULT_FUEL_SPAWN_DISTANCE);
 
     // Find the segment that contains the player's x position
     for segment in segments {
@@ -1028,7 +1111,9 @@ async fn main() {
                 update_game_world(&mut world, &mut audio_system, dt);
 
                 clear_background(DARKBLUE);
-                render_cave(&mut world.cave, world.camera_offset_x);
+                let fuel_spawn_distance = world.current_fuel_spawn_distance();
+                render_cave(&mut world.cave, fuel_spawn_distance, world.camera_offset_x);
+                render_pickups(&world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
                 render_tractor_beam(
                     &world.player,
@@ -1044,7 +1129,9 @@ async fn main() {
             core::game_state::GameState::Paused => {
                 // Keep game visuals but add pause overlay
                 clear_background(DARKBLUE);
-                render_cave(&mut world.cave, world.camera_offset_x);
+                let fuel_spawn_distance = world.current_fuel_spawn_distance();
+                render_cave(&mut world.cave, fuel_spawn_distance, world.camera_offset_x);
+                render_pickups(&world.cave, world.camera_offset_x);
                 render_player(&world.player, world.camera_offset_x);
                 render_tractor_beam(
                     &world.player,

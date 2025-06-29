@@ -49,3 +49,14 @@ pub mod distance;
 ///
 /// Manages level configurations including duration, fuel spawn distance, and cave width.
 pub mod level;
+
+/// Pickup system for collectible items.
+///
+/// Manages fuel depots and other collectibles that spawn on cave walls.
+pub mod pickup;
+
+/// Game constants for centralized configuration.
+///
+/// Contains all magic numbers and configuration constants.
+pub mod constants;
+

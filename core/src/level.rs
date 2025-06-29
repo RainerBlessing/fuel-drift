@@ -2,6 +2,33 @@
 /// 
 /// Manages level progression and difficulty parameters
 
+/// Errors that can occur in the level system
+#[derive(Debug, Clone, PartialEq)]
+pub enum LevelError {
+    /// Invalid level index requested
+    InvalidLevelIndex(usize),
+    /// No levels configured in the manager
+    EmptyLevelList,
+}
+
+impl std::fmt::Display for LevelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LevelError::InvalidLevelIndex(index) => {
+                write!(f, "Invalid level index: {}", index)
+            }
+            LevelError::EmptyLevelList => {
+                write!(f, "No levels configured in level manager")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LevelError {}
+
+/// Result type for level operations
+pub type LevelResult<T> = Result<T, LevelError>;
+
 /// Represents a single level configuration
 #[derive(Debug, Clone, PartialEq)]
 pub struct Level {
@@ -60,29 +87,33 @@ impl LevelManager {
     }
 
     /// Creates a level manager with custom levels
-    pub fn with_levels(levels: Vec<Level>) -> Self {
-        assert!(!levels.is_empty(), "Level manager must have at least one level");
-        Self {
+    pub fn with_levels(levels: Vec<Level>) -> LevelResult<Self> {
+        if levels.is_empty() {
+            return Err(LevelError::EmptyLevelList);
+        }
+        Ok(Self {
             levels,
             current_level_index: 0,
             level_start_time: 0.0,
-        }
+        })
     }
 
     /// Gets the current level
-    pub fn current_level(&self) -> &Level {
-        &self.levels[self.current_level_index]
+    pub fn current_level(&self) -> LevelResult<&Level> {
+        self.levels.get(self.current_level_index)
+            .ok_or(LevelError::InvalidLevelIndex(self.current_level_index))
     }
 
     /// Updates the level manager, checking for level progression
-    pub fn update(&mut self, current_time: f32) -> bool {
+    pub fn update(&mut self, current_time: f32) -> LevelResult<bool> {
         let elapsed = current_time - self.level_start_time;
-        let current_level = &self.levels[self.current_level_index];
+        let current_level = self.levels.get(self.current_level_index)
+            .ok_or(LevelError::InvalidLevelIndex(self.current_level_index))?;
         
         if elapsed >= current_level.duration_seconds {
-            self.advance_level(current_time)
+            Ok(self.advance_level(current_time))
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -96,10 +127,11 @@ impl LevelManager {
     }
 
     /// Gets the progress through the current level (0.0 to 1.0)
-    pub fn level_progress(&self, current_time: f32) -> f32 {
+    pub fn level_progress(&self, current_time: f32) -> LevelResult<f32> {
         let elapsed = current_time - self.level_start_time;
-        let duration = self.levels[self.current_level_index].duration_seconds;
-        (elapsed / duration).min(1.0)
+        let current_level = self.levels.get(self.current_level_index)
+            .ok_or(LevelError::InvalidLevelIndex(self.current_level_index))?;
+        Ok((elapsed / current_level.duration_seconds).min(1.0))
     }
 
     /// Resets the level manager to the first level
@@ -131,7 +163,7 @@ mod tests {
     #[test]
     fn test_level_manager_creation() {
         let manager = LevelManager::new();
-        assert_eq!(manager.current_level().number, 1);
+        assert_eq!(manager.current_level().unwrap().number, 1);
         assert_eq!(manager.current_level_index, 0);
     }
 
@@ -140,27 +172,27 @@ mod tests {
         let mut manager = LevelManager::new();
         
         // Should not advance before duration
-        assert!(!manager.update(30.0));
-        assert_eq!(manager.current_level().number, 1);
+        assert!(!manager.update(30.0).unwrap());
+        assert_eq!(manager.current_level().unwrap().number, 1);
         
         // Should advance after duration
-        assert!(manager.update(60.1));
-        assert_eq!(manager.current_level().number, 2);
+        assert!(manager.update(60.1).unwrap());
+        assert_eq!(manager.current_level().unwrap().number, 2);
         
         // Progress through level 2
-        assert!(!manager.update(120.0));
-        assert!(manager.update(150.1));
-        assert_eq!(manager.current_level().number, 3);
+        assert!(!manager.update(120.0).unwrap());
+        assert!(manager.update(150.1).unwrap());
+        assert_eq!(manager.current_level().unwrap().number, 3);
     }
 
     #[test]
     fn test_level_progress() {
         let manager = LevelManager::new();
         
-        assert_eq!(manager.level_progress(0.0), 0.0);
-        assert_eq!(manager.level_progress(30.0), 0.5);
-        assert_eq!(manager.level_progress(60.0), 1.0);
-        assert_eq!(manager.level_progress(90.0), 1.0); // Capped at 1.0
+        assert_eq!(manager.level_progress(0.0).unwrap(), 0.0);
+        assert_eq!(manager.level_progress(30.0).unwrap(), 0.5);
+        assert_eq!(manager.level_progress(60.0).unwrap(), 1.0);
+        assert_eq!(manager.level_progress(90.0).unwrap(), 1.0); // Capped at 1.0
     }
 
     #[test]
@@ -168,26 +200,37 @@ mod tests {
         let mut manager = LevelManager::with_levels(vec![
             Level::new(1, 10.0, 100.0, 200.0),
             Level::new(2, 10.0, 100.0, 200.0),
-        ]);
+        ]).unwrap();
         
-        assert!(manager.update(11.0));
-        assert_eq!(manager.current_level().number, 2);
+        assert!(manager.update(11.0).unwrap());
+        assert_eq!(manager.current_level().unwrap().number, 2);
         
         // Should stay at max level
-        assert!(manager.update(22.0));
-        assert_eq!(manager.current_level().number, 2);
+        assert!(manager.update(22.0).unwrap());
+        assert_eq!(manager.current_level().unwrap().number, 2);
         assert_eq!(manager.current_level_index, 1);
     }
 
     #[test]
     fn test_reset() {
         let mut manager = LevelManager::new();
-        manager.update(61.0);
-        assert_eq!(manager.current_level().number, 2);
+        manager.update(61.0).unwrap();
+        assert_eq!(manager.current_level().unwrap().number, 2);
         
         manager.reset();
-        assert_eq!(manager.current_level().number, 1);
+        assert_eq!(manager.current_level().unwrap().number, 1);
         assert_eq!(manager.current_level_index, 0);
         assert_eq!(manager.level_start_time, 0.0);
+    }
+
+    #[test]
+    fn test_error_handling() {
+        // Test empty level list
+        let result = LevelManager::with_levels(vec![]);
+        assert!(matches!(result, Err(LevelError::EmptyLevelList)));
+        
+        // Test error display
+        let error = LevelError::InvalidLevelIndex(5);
+        assert_eq!(error.to_string(), "Invalid level index: 5");
     }
 }

@@ -53,7 +53,7 @@ fn generator_maintains_minimum_gap() {
 
     // Generate many segments and check gap constraint
     for _ in 0..50 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     for segment in cave.segments() {
@@ -74,7 +74,7 @@ fn segments_are_contiguous() {
 
     // Generate several segments
     for _ in 0..10 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     let segments: Vec<_> = cave.segments().iter().collect();
@@ -112,7 +112,7 @@ fn segments_in_view_generates_as_needed() {
     assert_eq!(initial_count, 1);
 
     // Request view that extends beyond current segments
-    let segments = cave.segments_in_view(0.0, 500.0);
+    let segments = cave.segments_in_view(0.0, 500.0, 300.0);
 
     // Check after the method completes
     let final_count = cave.segments().len();
@@ -129,13 +129,13 @@ fn segments_in_view_filters_correctly() {
 
     // Generate several segments
     for _ in 0..10 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     // Request a specific view range
     let view_start = 100.0;
     let view_end = 200.0;
-    let segments = cave.segments_in_view(view_start, view_end);
+    let segments = cave.segments_in_view(view_start, view_end, 300.0);
 
     // All returned segments should intersect with the view range
     for segment in segments {
@@ -158,7 +158,7 @@ fn height_variation_is_reasonable() {
 
     // Generate many segments
     for _ in 0..20 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     // Check that heights don't drift too far from initial values
@@ -188,7 +188,7 @@ fn cave_limits_segment_count() {
 
     // Generate many more segments than the max
     for _ in 0..150 {
-        cave.generate_next();
+        cave.generate_next(300.0);
     }
 
     // Should not exceed reasonable memory usage

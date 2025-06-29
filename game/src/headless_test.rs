@@ -89,7 +89,7 @@ impl HeadlessGameWorld {
 
                 // Generate cave segments
                 let view_end = self.distance_tracker.distance + 800.0;
-                self.cave.segments_in_view(0.0, view_end);
+                self.cave.segments_in_view(0.0, view_end, core::constants::PickupConstants::DEFAULT_FUEL_SPAWN_DISTANCE);
 
                 // Update audio state
                 if self.audio_state.update_thruster(consuming) {
