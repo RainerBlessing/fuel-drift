@@ -4,8 +4,10 @@ members = ["core", "game"]
 resolver = "2"
 
 [workspace.dependencies]
-macroquad = "0.4"
+macroquad = "=0.4"  # Fixe Version
 
-# Add WASM support
-[workspace.metadata.docs.rs]
-targets = ["wasm32-unknown-unknown"]
+[profile.release]
+# WASM-Optimierungen
+lto = true
+codegen-units = 1
+panic = "abort"

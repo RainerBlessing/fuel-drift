@@ -1,4 +1,14 @@
-// game/src/main.rs
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+// WASM-spezifische Initialisierung
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_main() {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    //web_sys::console::log_1(&"🚀 Fuel Drift WASM starting...".into());
+}
 
 use core::audio::{AudioEvent, AudioEventQueue, AudioState};
 use core::cave::Cave;
@@ -12,6 +22,8 @@ use macroquad::prelude::*;
 use macroquad::ui::{root_ui, widgets};
 
 mod headless_test;
+mod ui;
+mod menu;
 
 /// Window configuration constants
 const WINDOW_WIDTH: i32 = 800;
@@ -110,6 +122,30 @@ impl AudioSystem {
     }
 }
 
+/// Menu selection state
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MenuSelection {
+    Start,
+    Quit,
+}
+
+/// Menu state for keyboard navigation
+struct MenuState {
+    main_menu_selection: MenuSelection,
+    pause_menu_selection: usize, // 0 = Resume, 1 = Back to Menu
+    game_over_menu_selection: usize, // 0 = Replay, 1 = Back to Menu
+}
+
+impl MenuState {
+    fn new() -> Self {
+        Self {
+            main_menu_selection: MenuSelection::Start,
+            pause_menu_selection: 0,
+            game_over_menu_selection: 0,
+        }
+    }
+}
+
 /// Game state container following Single Responsibility Principle
 struct GameWorld {
     state_machine: StateMachine,
@@ -122,6 +158,7 @@ struct GameWorld {
     camera_offset_x: f32,
     collision_flash_timer: f32,
     should_quit: bool,
+    menu_state: MenuState,
 }
 
 impl GameWorld {
@@ -137,6 +174,7 @@ impl GameWorld {
             camera_offset_x: 0.0,
             collision_flash_timer: 0.0,
             should_quit: false,
+            menu_state: MenuState::new(),
         }
     }
 
@@ -167,6 +205,30 @@ fn handle_main_menu(world: &mut GameWorld, _audio_system: &mut AudioSystem) {
     let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
     let center_y = WINDOW_HEIGHT as f32 / 2.0;
 
+    // Handle keyboard navigation
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Down) {
+        world.menu_state.main_menu_selection = match world.menu_state.main_menu_selection {
+            MenuSelection::Start => MenuSelection::Quit,
+            MenuSelection::Quit => MenuSelection::Start,
+        };
+        world.audio_queue.push(AudioEvent::ButtonClick);
+    }
+
+    // Handle selection with Enter or Space
+    if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+        match world.menu_state.main_menu_selection {
+            MenuSelection::Start => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.state_machine.handle_event(GameEvent::Start);
+                world.reset();
+            }
+            MenuSelection::Quit => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.should_quit = true;
+            }
+        }
+    }
+
     // Title
     draw_text(
         "FUEL DRIFT",
@@ -184,8 +246,32 @@ fn handle_main_menu(world: &mut GameWorld, _audio_system: &mut AudioSystem) {
         16.0,
         GRAY,
     );
+    
+    // Keyboard instructions
+    draw_text(
+        "Press SPACE or ENTER to select",
+        WINDOW_WIDTH as f32 / 2.0 - 120.0,
+        center_y - 30.0,
+        14.0,
+        GRAY,
+    );
 
-    // Start button
+    // Start button with selection highlight
+    let start_color = if world.menu_state.main_menu_selection == MenuSelection::Start {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        start_color,
+    );
+    
     if widgets::Button::new("Start Game")
         .position(vec2(center_x, center_y))
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
@@ -196,7 +282,22 @@ fn handle_main_menu(world: &mut GameWorld, _audio_system: &mut AudioSystem) {
         world.reset();
     }
 
-    // Quit button
+    // Quit button with selection highlight
+    let quit_color = if world.menu_state.main_menu_selection == MenuSelection::Quit {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y + BUTTON_HEIGHT + MENU_SPACING - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        quit_color,
+    );
+    
     if widgets::Button::new("Quit")
         .position(vec2(center_x, center_y + BUTTON_HEIGHT + MENU_SPACING))
         .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
@@ -221,6 +322,27 @@ fn handle_pause_menu(world: &mut GameWorld) {
     let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
     let center_y = WINDOW_HEIGHT as f32 / 2.0;
 
+    // Handle keyboard navigation
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Down) {
+        world.menu_state.pause_menu_selection = 1 - world.menu_state.pause_menu_selection;
+        world.audio_queue.push(AudioEvent::ButtonClick);
+    }
+
+    // Handle selection with Enter or Space
+    if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+        match world.menu_state.pause_menu_selection {
+            0 => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.state_machine.handle_event(GameEvent::PauseToggle);
+            }
+            1 => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.state_machine.handle_event(GameEvent::BackToMenu);
+            }
+            _ => {}
+        }
+    }
+
     // Title
     draw_text(
         "PAUSED",
@@ -228,6 +350,31 @@ fn handle_pause_menu(world: &mut GameWorld) {
         center_y - 50.0,
         30.0,
         WHITE,
+    );
+    
+    // Keyboard instructions
+    draw_text(
+        "Press SPACE or ENTER to select",
+        WINDOW_WIDTH as f32 / 2.0 - 120.0,
+        center_y - 10.0,
+        14.0,
+        GRAY,
+    );
+
+    // Resume button with selection highlight
+    let resume_color = if world.menu_state.pause_menu_selection == 0 {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        resume_color,
     );
 
     // Resume button
@@ -239,6 +386,22 @@ fn handle_pause_menu(world: &mut GameWorld) {
         world.audio_queue.push(AudioEvent::ButtonClick);
         world.state_machine.handle_event(GameEvent::PauseToggle);
     }
+
+    // Back to Menu button with selection highlight
+    let back_color = if world.menu_state.pause_menu_selection == 1 {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y + BUTTON_HEIGHT + MENU_SPACING - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        back_color,
+    );
 
     // Back to Menu button
     if widgets::Button::new("Back to Menu")
@@ -255,6 +418,28 @@ fn handle_pause_menu(world: &mut GameWorld) {
 fn handle_game_over_menu(world: &mut GameWorld) {
     let center_x = WINDOW_WIDTH as f32 / 2.0 - BUTTON_WIDTH / 2.0;
     let center_y = WINDOW_HEIGHT as f32 / 2.0;
+
+    // Handle keyboard navigation
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::Down) {
+        world.menu_state.game_over_menu_selection = 1 - world.menu_state.game_over_menu_selection;
+        world.audio_queue.push(AudioEvent::ButtonClick);
+    }
+
+    // Handle selection with Enter or Space
+    if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+        match world.menu_state.game_over_menu_selection {
+            0 => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.state_machine.handle_event(GameEvent::Start);
+                world.reset();
+            }
+            1 => {
+                world.audio_queue.push(AudioEvent::ButtonClick);
+                world.state_machine.handle_event(GameEvent::BackToMenu);
+            }
+            _ => {}
+        }
+    }
 
     let death_message = if world.fuel.is_empty() {
         "OUT OF FUEL!"
@@ -290,6 +475,31 @@ fn handle_game_over_menu(world: &mut GameWorld) {
         16.0,
         YELLOW,
     );
+    
+    // Keyboard instructions
+    draw_text(
+        "Press SPACE or ENTER to select",
+        WINDOW_WIDTH as f32 / 2.0 - 120.0,
+        center_y,
+        14.0,
+        GRAY,
+    );
+
+    // Replay button with selection highlight
+    let replay_color = if world.menu_state.game_over_menu_selection == 0 {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y + 20.0 - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        replay_color,
+    );
 
     // Replay button
     if widgets::Button::new("Replay")
@@ -301,6 +511,22 @@ fn handle_game_over_menu(world: &mut GameWorld) {
         world.state_machine.handle_event(GameEvent::Start);
         world.reset();
     }
+
+    // Back to Menu button with selection highlight
+    let back_color = if world.menu_state.game_over_menu_selection == 1 {
+        YELLOW
+    } else {
+        WHITE
+    };
+    
+    draw_rectangle_lines(
+        center_x - 5.0,
+        center_y + 20.0 + BUTTON_HEIGHT + MENU_SPACING - 5.0,
+        BUTTON_WIDTH + 10.0,
+        BUTTON_HEIGHT + 10.0,
+        2.0,
+        back_color,
+    );
 
     // Back to Menu button
     if widgets::Button::new("Back to Menu")
@@ -353,8 +579,9 @@ fn collect_player_input() -> PlayerInput {
 }
 
 /// Checks if player is currently consuming fuel.
+/// Right movement (acceleration) consumes fuel, left movement (braking) does not.
 fn is_consuming_fuel(input: PlayerInput) -> bool {
-    input.up || input.down || input.left || input.right
+    input.up || input.down || input.right
 }
 
 /// Checks for collision between player and cave walls.
@@ -444,7 +671,7 @@ fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: 
 
             // Update player physics only if fuel is available
             if !world.fuel.is_empty() {
-                world.player.tick(dt, input);
+                world.player.tick(dt, input, SCROLL_SPEED, world.camera_offset_x);
             }
 
             // Check for collisions
@@ -735,6 +962,25 @@ fn get_cave_wall_height_at_position(x_pos: f32, beam_dir: BeamDir, cave: &mut Ca
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    // Check for help flag
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("Fuel Drift - A cave flying game");
+        println!();
+        println!("Usage: {} [OPTIONS]", args[0]);
+        println!();
+        println!("OPTIONS:");
+        println!("  --start, -s          Start the game directly (skip main menu)");
+        println!("  --headless-test      Run headless test for CI");
+        println!("  --help, -h           Show this help message");
+        println!();
+        println!("CONTROLS:");
+        println!("  Arrow Keys           Move spaceship");
+        println!("  W/S                  Activate tractor beam");
+        println!("  ESC                  Pause game");
+        println!("  SPACE/ENTER          Select menu option");
+        return;
+    }
+
     // Check for headless test flag
     if args.contains(&"--headless-test".to_string()) {
         if let Err(e) = headless_test::run_headless_test(5.0) {
@@ -745,9 +991,18 @@ async fn main() {
         return;
     }
 
+    // Check for direct start flag
+    let direct_start = args.contains(&"--start".to_string()) || args.contains(&"-s".to_string());
+
     // Initialize audio system (stub implementation)
     let mut audio_system = AudioSystem::new();
     let mut world = GameWorld::new();
+    
+    // Start game directly if requested
+    if direct_start {
+        world.state_machine.handle_event(GameEvent::Start);
+        world.reset();
+    }
 
     loop {
         if world.should_quit {

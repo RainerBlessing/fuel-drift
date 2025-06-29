@@ -1,1 +1,11 @@
-# Content from trunk_toml artifact
+﻿[build]
+target = "game/index.html"
+dist = "dist"
+
+[serve]
+address = "127.0.0.1"
+port = 8080
+open = true
+
+[env]
+WASM_BINDGEN_NO_MODULES = "1"

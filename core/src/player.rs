@@ -64,10 +64,12 @@ impl Player {
     /// Updates player physics for one frame.
     ///
     /// Separated into smaller methods to reduce cyclomatic complexity.
-    pub fn tick(&mut self, dt: f32, input: PlayerInput) {
+    /// scroll_speed: The horizontal scroll speed of the world (pixels/sec)
+    /// camera_offset_x: The current camera offset for boundary checking
+    pub fn tick(&mut self, dt: f32, input: PlayerInput, scroll_speed: f32, camera_offset_x: f32) {
         self.apply_gravity(dt);
         self.apply_thrust(dt, input);
-        self.apply_horizontal_movement(dt, input);
+        self.apply_horizontal_movement(dt, input, scroll_speed, camera_offset_x);
         self.update_position(dt);
     }
 
@@ -88,9 +90,18 @@ impl Player {
     }
 
     /// Applies horizontal movement with speed clamping.
-    fn apply_horizontal_movement(&mut self, dt: f32, input: PlayerInput) {
+    /// Includes base scroll speed compensation and boundary checks.
+    fn apply_horizontal_movement(&mut self, dt: f32, input: PlayerInput, scroll_speed: f32, camera_offset_x: f32) {
         const HORIZONTAL_ACCELERATION: f32 = 800.0; // pixels/sec²
-
+        const PLAYER_HALF_WIDTH: f32 = 15.0; // Half of player sprite width (30.0 / 2)
+        const SCREEN_WIDTH: f32 = 800.0;
+        const MIN_SCREEN_X: f32 = PLAYER_HALF_WIDTH;  // Player center when left edge touches screen
+        const MAX_SCREEN_X: f32 = SCREEN_WIDTH - PLAYER_HALF_WIDTH; // Player center when right edge touches screen
+        
+        // Apply base scroll speed to maintain position relative to scrolling world
+        self.pos.x += scroll_speed * dt;
+        
+        // Apply acceleration based on input
         if input.left {
             self.vel.x -= HORIZONTAL_ACCELERATION * dt;
         }
@@ -104,6 +115,19 @@ impl Player {
             -PlayerConstants::MAX_HORIZONTAL_SPEED,
             PlayerConstants::MAX_HORIZONTAL_SPEED,
         );
+        
+        // Apply boundary constraints based on screen position
+        let screen_x = self.pos.x - camera_offset_x;
+        
+        if screen_x < MIN_SCREEN_X {
+            // Player is too far left on screen
+            self.pos.x = camera_offset_x + MIN_SCREEN_X;
+            self.vel.x = self.vel.x.max(0.0); // Stop leftward movement
+        } else if screen_x > MAX_SCREEN_X {
+            // Player is too far right on screen
+            self.pos.x = camera_offset_x + MAX_SCREEN_X;
+            self.vel.x = self.vel.x.min(0.0); // Stop rightward movement
+        }
     }
 
     /// Updates position based on current velocity.

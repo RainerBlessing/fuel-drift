@@ -152,7 +152,7 @@ fn player_physics_collision_scenario() {
 
     // Move player multiple frames
     for _ in 0..10 {
-        player.tick(dt, input);
+        player.tick(dt, input, 0.0, 0.0);
     }
 
     // Player should have moved upward

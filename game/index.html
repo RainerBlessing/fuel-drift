@@ -1,1 +1,299 @@
-<!-- Content from index_html artifact -->
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Fuel Drift</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: white;
+            overflow: hidden;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        h1 {
+            font-size: 3rem;
+            text-shadow: 0 0 20px rgba(0, 150, 255, 0.8);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        canvas {
+            border: 2px solid rgba(0, 150, 255, 0.6);
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 150, 255, 0.3);
+            background: #000;
+            display: block;
+            outline: none;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #0096ff;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 8px;
+            z-index: 1000;
+            text-align: center;
+            border: 2px solid rgba(0, 150, 255, 0.6);
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 150, 255, 0.3);
+            border-top: 3px solid #0096ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .start-button {
+            background: #0096ff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 15px;
+            font-size: 16px;
+            font-family: inherit;
+            transition: background 0.3s;
+        }
+        .start-button:hover {
+            background: #0080e6;
+        }
+        .start-button:active {
+            background: #006bb3;
+        }
+        #controls {
+            text-align: center;
+            font-size: 14px;
+            color: #ccc;
+            margin-top: 10px;
+        }
+        .key {
+            background: rgba(0, 150, 255, 0.3);
+            padding: 3px 7px;
+            border-radius: 3px;
+            margin: 0 2px;
+        }
+        .status-indicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 255, 0, 0.1);
+            color: #00ff00;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div id="loading">
+    <div>🚀 Fuel Drift</div>
+    <div class="loading-spinner"></div>
+    <div id="status">Initialisiere Spiel-Engine...</div>
+    <button class="start-button" onclick="startGame()" style="display: none;" id="manual-start">Spiel starten</button>
+</div>
+
+<div id="game-container" style="display: none;">
+    <h1>🚀 FUEL DRIFT</h1>
+    <canvas id="glcanvas" width="800" height="600" tabindex="1"></canvas>
+    <div id="controls">
+        <span class="key">↑↓←→</span> Bewegung |
+        <span class="key">W</span><span class="key">S</span> Traktorstrahl |
+        <span class="key">ESC</span> Pause
+    </div>
+</div>
+
+<div id="success" class="status-indicator">✅ Spiel gestartet</div>
+
+<script>
+    let gameStarted = false;
+    let detectionAttempts = 0;
+    const maxAttempts = 80; // 8 Sekunden
+
+    function updateStatus(message) {
+        const status = document.getElementById('status');
+        if (status) {
+            status.textContent = message;
+        }
+        console.log('🎮 Status:', message);
+    }
+
+    function showManualStart() {
+        const button = document.getElementById('manual-start');
+        if (button) {
+            button.style.display = 'inline-block';
+        }
+        updateStatus('Bereit zum Start');
+    }
+
+    function startGame() {
+        if (gameStarted) return;
+        gameStarted = true;
+
+        console.log('🚀 Starting Fuel Drift...');
+
+        const loading = document.getElementById('loading');
+        const container = document.getElementById('game-container');
+        const success = document.getElementById('success');
+
+        if (loading) loading.style.display = 'none';
+        if (container) container.style.display = 'flex';
+
+        // Canvas für Input vorbereiten
+        const canvas = document.getElementById('glcanvas');
+        if (canvas) {
+            canvas.focus();
+            console.log('✅ Canvas ready for input');
+        }
+
+        // Erfolgs-Indikator anzeigen
+        if (success) {
+            success.style.display = 'block';
+            setTimeout(() => success.style.display = 'none', 3000);
+        }
+
+        updateStatus('Spiel läuft!');
+    }
+
+    // Intelligente WASM/Macroquad-Erkennung
+    function detectGameReady() {
+        detectionAttempts++;
+
+        // 1. Prüfe auf WASM-Bindgen-Module
+        const wasmReady = window.wasm_bindgen ||
+            window.__wbindgen_start ||
+            window.__wbg_init;
+
+        if (wasmReady) {
+            updateStatus('WASM bereit - Starte automatisch...');
+            console.log('✅ WASM-bindgen detected');
+            setTimeout(startGame, 800); // Kurze Verzögerung für vollständige Initialisierung
+            return;
+        }
+
+        // 2. Prüfe Canvas-Kontext-Verfügbarkeit
+        const canvas = document.getElementById('glcanvas');
+        if (canvas) {
+            try {
+                const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
+                if (gl) {
+                    // Prüfe auf aktive WebGL-Ressourcen
+                    const program = gl.getParameter(gl.CURRENT_PROGRAM);
+                    const activeTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
+
+                    if (program || activeTexture !== gl.TEXTURE0) {
+                        updateStatus('WebGL aktiv - Starte automatisch...');
+                        console.log('✅ Active WebGL context detected');
+                        setTimeout(startGame, 500);
+                        return;
+                    }
+                }
+            } catch (e) {
+                // WebGL-Fehler ignorieren
+            }
+        }
+
+        // 3. Prüfe auf Macroquad-spezifische Globals
+        const macroquadGlobals = ['miniquad', 'quad_gl', '__macroquad_input'];
+        for (const global of macroquadGlobals) {
+            if (window[global]) {
+                updateStatus('Macroquad erkannt - Starte automatisch...');
+                console.log('✅ Macroquad global detected:', global);
+                setTimeout(startGame, 300);
+                return;
+            }
+        }
+
+        // 4. Progress-Update
+        if (detectionAttempts <= maxAttempts) {
+            const progress = Math.round((detectionAttempts / maxAttempts) * 100);
+            updateStatus(`Lädt Spiel-Engine... ${progress}%`);
+
+            // Nach der Hälfte der Zeit: Manual Start Button anzeigen
+            if (detectionAttempts === Math.floor(maxAttempts / 2)) {
+                showManualStart();
+            }
+
+            setTimeout(detectGameReady, 100);
+        } else {
+            // Timeout erreicht - Manual Start
+            updateStatus('Bereit - Manueller Start erforderlich');
+            showManualStart();
+            console.log('⏰ Auto-detection timeout - manual start available');
+        }
+    }
+
+    // Event-Listener für sofortigen Start
+    window.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !gameStarted) {
+            e.preventDefault();
+            console.log('⌨️ Keyboard shortcut detected - starting game');
+            startGame();
+        }
+    });
+
+    // Click-to-start (nach kurzer Verzögerung)
+    let clickStartEnabled = false;
+    setTimeout(() => {
+        clickStartEnabled = true;
+    }, 2000);
+
+    document.addEventListener('click', (e) => {
+        if (clickStartEnabled && !gameStarted && e.target.tagName !== 'BUTTON') {
+            console.log('🖱️ Click-to-start activated');
+            startGame();
+        }
+    });
+
+    // Initialisierung
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📄 DOM ready - starting detection');
+            setTimeout(detectGameReady, 300);
+        });
+    } else {
+        console.log('📄 DOM already ready - starting detection');
+        setTimeout(detectGameReady, 300);
+    }
+
+    window.addEventListener('load', () => {
+        console.log('🌐 Window loaded');
+        if (!gameStarted && detectionAttempts < 10) {
+            setTimeout(detectGameReady, 200);
+        }
+    });
+
+    // Global Funktionen für Console-Debugging
+    window.startGame = startGame;
+    window.forceStart = startGame;
+
+    console.log('🎮 Fuel Drift - Clean Production Loader');
+    console.log('💡 Auto-detection running. Manual: startGame() or ENTER/SPACE');
+
+</script>
+</body>
+</html>

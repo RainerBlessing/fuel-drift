@@ -84,7 +84,7 @@ impl HeadlessGameWorld {
 
                 // Update player physics
                 if !self.fuel.is_empty() {
-                    self.player.tick(dt, input);
+                    self.player.tick(dt, input, 120.0, 0.0); // Using SCROLL_SPEED constant value, camera_offset = 0
                 }
 
                 // Generate cave segments
