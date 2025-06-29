@@ -40,3 +40,23 @@ impl CaveConstants {
     /// Default fuel spawn distance for cave operations
     pub const DEFAULT_FUEL_SPAWN_DISTANCE: f32 = 1000.0;
 }
+
+/// Tractor beam constants
+pub struct TractorBeamConstants;
+
+impl TractorBeamConstants {
+    /// Maximum range of the tractor beam in pixels (increased to reach ceiling from player position)
+    pub const MAX_RANGE: f32 = 300.0;
+    
+    /// Width of the tractor beam in pixels (matches visual beam)
+    pub const BEAM_WIDTH: f32 = 32.0;
+    
+    /// Wider area for maintaining attraction once started (prevents oscillation)
+    pub const ATTRACTION_HOLD_WIDTH: f32 = 48.0;
+    
+    /// Speed at which pickups are attracted toward the player (pixels per second)
+    pub const ATTRACTION_SPEED: f32 = 200.0;
+    
+    /// Maximum duration the beam can remain active in seconds
+    pub const MAX_DURATION: f32 = 2.0;
+}
