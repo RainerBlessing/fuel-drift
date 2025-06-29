@@ -44,3 +44,8 @@ pub mod audio;
 ///
 /// Tracks accumulated distance traveled during gameplay.
 pub mod distance;
+
+/// Level system for progression and difficulty management.
+///
+/// Manages level configurations including duration, fuel spawn distance, and cave width.
+pub mod level;
