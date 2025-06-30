@@ -91,13 +91,15 @@ fn segments_are_contiguous() {
 /// Tests the initial cave setup.
 #[test]
 fn initial_cave_setup() {
-    let cave = Cave::new(999);
+    let mut cave = Cave::new(999);
+    cave.configure_for_level(1);
 
     assert_eq!(cave.segments().len(), 1);
 
     let first_segment = &cave.segments()[0];
-    assert_float_eq(first_segment.ceiling, CaveConstants::INITIAL_CEILING);
-    assert_float_eq(first_segment.floor, CaveConstants::INITIAL_FLOOR);
+    // Level 1 should have a 400px gap
+    assert_float_eq(first_segment.ceiling, 100.0);
+    assert_float_eq(first_segment.floor, 500.0);
     assert_float_eq(first_segment.x_start, 0.0);
     assert_float_eq(first_segment.width, CaveConstants::SEGMENT_WIDTH);
 }
@@ -152,6 +154,7 @@ fn segments_in_view_filters_correctly() {
 #[test]
 fn height_variation_is_reasonable() {
     let mut cave = Cave::new(456);
+    cave.configure_for_level(1);
 
     let initial_ceiling = cave.segments()[0].ceiling;
     let initial_floor = cave.segments()[0].floor;
@@ -161,22 +164,24 @@ fn height_variation_is_reasonable() {
         cave.generate_next(300.0);
     }
 
-    // Check that heights don't drift too far from initial values
+    // With new horizontal cave generation, heights should stay very close to base values
     for segment in cave.segments() {
-        let max_total_drift = CaveConstants::MAX_HEIGHT_CHANGE * 20.0; // Conservative estimate
+        let max_variation = CaveConstants::MAX_HEIGHT_CHANGE;
 
         assert!(
-            (segment.ceiling - initial_ceiling).abs() < max_total_drift * 2.0,
-            "Ceiling drifted too far: {} vs initial {}",
+            (segment.ceiling - initial_ceiling).abs() <= max_variation,
+            "Ceiling varied too much: {} vs initial {} (max variation: {})",
             segment.ceiling,
-            initial_ceiling
+            initial_ceiling,
+            max_variation
         );
 
         assert!(
-            (segment.floor - initial_floor).abs() < max_total_drift * 2.0,
-            "Floor drifted too far: {} vs initial {}",
+            (segment.floor - initial_floor).abs() <= max_variation,
+            "Floor varied too much: {} vs initial {} (max variation: {})",
             segment.floor,
-            initial_floor
+            initial_floor,
+            max_variation
         );
     }
 }
@@ -197,4 +202,62 @@ fn cave_limits_segment_count() {
         "Too many segments retained: {}",
         cave.segments().len()
     );
+}
+
+/// Tests level-based cave configuration.
+#[test]
+fn cave_level_configuration() {
+    let mut cave = Cave::new(111);
+    
+    // Test level 1 - should have 400px gap
+    cave.configure_for_level(1);
+    let level1_segment = &cave.segments()[0];
+    assert_float_eq(level1_segment.gap_height(), 400.0);
+    
+    // Test level 2 - should have 350px gap
+    cave.configure_for_level(2);
+    let level2_segment = &cave.segments()[0];
+    assert_float_eq(level2_segment.gap_height(), 350.0);
+    
+    // Test level 3 - should have 300px gap
+    cave.configure_for_level(3);
+    let level3_segment = &cave.segments()[0];
+    assert_float_eq(level3_segment.gap_height(), 300.0);
+    
+    // Test level 6 - should have minimum gap (140px)
+    cave.configure_for_level(6);
+    let level6_segment = &cave.segments()[0];
+    assert_float_eq(level6_segment.gap_height(), CaveConstants::MIN_GAP);
+    
+    // Test level 10 - should still have minimum gap
+    cave.configure_for_level(10);
+    let level10_segment = &cave.segments()[0];
+    assert_float_eq(level10_segment.gap_height(), CaveConstants::MIN_GAP);
+}
+
+/// Tests that cave remains horizontal with small variations.
+#[test]
+fn cave_remains_horizontal() {
+    let mut cave = Cave::new(222);
+    cave.configure_for_level(1);
+    
+    // Generate many segments
+    for _ in 0..50 {
+        cave.generate_next(300.0);
+    }
+    
+    // All segments should be very close to the base heights
+    let base_ceiling = 100.0;
+    let base_floor = 500.0;
+    
+    for segment in cave.segments() {
+        assert!(
+            (segment.ceiling - base_ceiling).abs() <= CaveConstants::MAX_HEIGHT_CHANGE,
+            "Ceiling deviated too much from horizontal"
+        );
+        assert!(
+            (segment.floor - base_floor).abs() <= CaveConstants::MAX_HEIGHT_CHANGE,
+            "Floor deviated too much from horizontal"
+        );
+    }
 }

@@ -199,8 +199,9 @@ impl GameWorld {
         self.level_manager.reset();
         self.camera_offset_x = 0.0;
         self.collision_flash_timer = 0.0;
-        // Reset cave with new pickup manager
+        // Reset cave with new pickup manager and configure for level 1
         self.cave = Cave::new(42);
+        self.cave.configure_for_level(1);
     }
 }
 
@@ -746,6 +747,19 @@ fn update_game_world(world: &mut GameWorld, audio_system: &mut AudioSystem, dt: 
     match world.state_machine.current() {
         core::game_state::GameState::Playing => {
             update_camera_and_distance(world, dt);
+            
+            // Check for level progression
+            let current_time = world.distance_tracker.elapsed_time();
+            if let Ok(level_changed) = world.level_manager.update(current_time) {
+                if level_changed {
+                    // Configure cave for new level
+                    let new_level_number = world.level_manager.current_level_number();
+                    world.cave.configure_for_level(new_level_number);
+                    // TODO: Add level up sound
+                    world.audio_queue.push(AudioEvent::ButtonClick);
+                }
+            }
+            
             handle_player_input_and_physics(world, audio_system, dt);
             
             // Only check collisions if still playing (fuel didn't run out)

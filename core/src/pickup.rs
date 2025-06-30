@@ -312,6 +312,13 @@ impl PickupManager {
             .filter(|p| !p.collected)
             .any(|p| tractor_beam.is_point_in_beam(player_pos, p.position))
     }
+    
+    /// Clears all pickups (used when transitioning to a new level).
+    pub fn clear_all_pickups(&mut self) {
+        self.pickups.clear();
+        self.last_pickup_x = 0.0;
+        self.next_pickup_distance = PickupConstants::INITIAL_SPAWN_DELAY;
+    }
 }
 
 

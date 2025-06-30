@@ -9,12 +9,16 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DistanceTracker {
     pub distance: f32,
+    elapsed_time: f32,
 }
 
 impl DistanceTracker {
     /// Creates a new distance tracker starting at zero.
     pub fn new() -> Self {
-        Self { distance: 0.0 }
+        Self { 
+            distance: 0.0,
+            elapsed_time: 0.0,
+        }
     }
 
     /// Updates the distance based on scroll speed and delta time.
@@ -24,11 +28,13 @@ impl DistanceTracker {
     /// * `dt` - Delta time in seconds
     pub fn update(&mut self, scroll_speed: f32, dt: f32) {
         self.distance += scroll_speed * dt;
+        self.elapsed_time += dt;
     }
 
     /// Resets the distance to zero.
     pub fn reset(&mut self) {
         self.distance = 0.0;
+        self.elapsed_time = 0.0;
     }
 
     /// Gets the current distance as an integer for display.
@@ -39,6 +45,11 @@ impl DistanceTracker {
     /// Gets the current distance as a formatted string.
     pub fn distance_formatted(&self) -> String {
         format!("{}m", self.distance_as_int())
+    }
+    
+    /// Gets the elapsed time in seconds.
+    pub fn elapsed_time(&self) -> f32 {
+        self.elapsed_time
     }
 }
 

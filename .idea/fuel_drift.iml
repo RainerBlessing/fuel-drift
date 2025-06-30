@@ -6,6 +6,9 @@
       <sourceFolder url="file://$MODULE_DIR$/core/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/game" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/game/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/.claude" />
+      <excludeFolder url="file://$MODULE_DIR$/dist" />
+      <excludeFolder url="file://$MODULE_DIR$/game/dist" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

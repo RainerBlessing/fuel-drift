@@ -38,11 +38,11 @@ impl CaveSegment {
 pub struct CaveConstants;
 
 impl CaveConstants {
-    pub const MIN_GAP: f32 = 140.0; // Minimum gap between ceiling and floor
+    pub const MIN_GAP: f32 = 150.0; // Minimum gap between ceiling and floor
     pub const SEGMENT_WIDTH: f32 = 50.0; // Width of each segment
-    pub const MAX_HEIGHT_CHANGE: f32 = 20.0; // Maximum height change per segment
-    pub const INITIAL_CEILING: f32 = 100.0;
-    pub const INITIAL_FLOOR: f32 = 400.0;
+    pub const MAX_HEIGHT_CHANGE: f32 = 5.0; // Maximum height change per segment (reduced for more horizontal cave)
+    pub const INITIAL_CEILING: f32 = 50.0; // High ceiling for level 1
+    pub const INITIAL_FLOOR: f32 = 450.0; // Low floor for level 1
 }
 
 /// Simple linear congruential generator for deterministic randomness.
@@ -80,6 +80,8 @@ pub struct Cave {
     rng: SimpleRng,
     next_x: f32,
     pickup_manager: PickupManager,
+    base_ceiling: f32,
+    base_floor: f32,
 }
 
 impl Cave {
@@ -90,6 +92,8 @@ impl Cave {
             rng: SimpleRng::new(seed),
             next_x: 0.0,
             pickup_manager: PickupManager::new(seed),
+            base_ceiling: CaveConstants::INITIAL_CEILING,
+            base_floor: CaveConstants::INITIAL_FLOOR,
         };
 
         // Generate initial segment
@@ -97,11 +101,31 @@ impl Cave {
         cave
     }
 
+    /// Updates the cave configuration for a new level.
+    /// Level 1 has the highest cave (400px gap), each level reduces by 50px.
+    pub fn configure_for_level(&mut self, level_number: u32) {
+        // Level 1: 400px, Level 2: 350px, ..., Level 6+: MIN_GAP (140px)
+        let initial_gap = CaveConstants::INITIAL_FLOOR - CaveConstants::INITIAL_CEILING;
+        let level_reduction = (level_number - 1).min(5) as f32 * 50.0;
+        let gap = (initial_gap - level_reduction).max(CaveConstants::MIN_GAP);
+        
+        // Center the cave vertically
+        let center_y = 300.0; // Center of 600px high window
+        self.base_ceiling = center_y - gap / 2.0;
+        self.base_floor = center_y + gap / 2.0;
+        
+        // Clear existing segments and pickups, then regenerate initial segment
+        self.segments.clear();
+        self.pickup_manager.clear_all_pickups();
+        self.next_x = 0.0;
+        self.generate_initial_segment();
+    }
+
     /// Generates the initial cave segment.
     fn generate_initial_segment(&mut self) {
         let segment = CaveSegment::new(
-            CaveConstants::INITIAL_CEILING,
-            CaveConstants::INITIAL_FLOOR,
+            self.base_ceiling,
+            self.base_floor,
             0.0,
             CaveConstants::SEGMENT_WIDTH,
         );
@@ -114,22 +138,23 @@ impl Cave {
     ///
     /// Ensures minimum gap is maintained and segments are contiguous.
     pub fn generate_next(&mut self, fuel_spawn_distance: f32) {
-        let prev_segment = self
+        let _prev_segment = self
             .segments
             .back()
             .expect("Cave should always have at least one segment");
 
-        let ceiling_change = self.rng.range(
+        // Small variation around the base heights
+        let ceiling_variation = self.rng.range(
             -CaveConstants::MAX_HEIGHT_CHANGE,
             CaveConstants::MAX_HEIGHT_CHANGE,
         );
-        let floor_change = self.rng.range(
+        let floor_variation = self.rng.range(
             -CaveConstants::MAX_HEIGHT_CHANGE,
             CaveConstants::MAX_HEIGHT_CHANGE,
         );
 
-        let mut new_ceiling = prev_segment.ceiling + ceiling_change;
-        let mut new_floor = prev_segment.floor + floor_change;
+        let mut new_ceiling = self.base_ceiling + ceiling_variation;
+        let mut new_floor = self.base_floor + floor_variation;
 
         // Ensure minimum gap is maintained
         if new_floor - new_ceiling < CaveConstants::MIN_GAP {

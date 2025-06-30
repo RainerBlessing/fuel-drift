@@ -101,12 +101,17 @@ impl Player {
         // Apply base scroll speed to maintain position relative to scrolling world
         self.pos.x += scroll_speed * dt;
         
-        // Apply acceleration based on input
-        if input.left {
+        // Check boundary constraints before applying acceleration
+        let screen_x = self.pos.x - camera_offset_x;
+        let at_left_boundary = screen_x <= MIN_SCREEN_X;
+        let at_right_boundary = screen_x >= MAX_SCREEN_X;
+        
+        // Apply acceleration based on input, but only if not pushing against boundary
+        if input.left && (!at_left_boundary || self.vel.x > 0.0) {
             self.vel.x -= HORIZONTAL_ACCELERATION * dt;
         }
 
-        if input.right {
+        if input.right && (!at_right_boundary || self.vel.x < 0.0) {
             self.vel.x += HORIZONTAL_ACCELERATION * dt;
         }
 
@@ -116,17 +121,15 @@ impl Player {
             PlayerConstants::MAX_HORIZONTAL_SPEED,
         );
         
-        // Apply boundary constraints based on screen position
-        let screen_x = self.pos.x - camera_offset_x;
-        
-        if screen_x < MIN_SCREEN_X {
-            // Player is too far left on screen
+        // Apply boundary constraints to position and velocity
+        if at_left_boundary && self.vel.x < 0.0 {
+            // Player is at left boundary and trying to move left
             self.pos.x = camera_offset_x + MIN_SCREEN_X;
-            self.vel.x = self.vel.x.max(0.0); // Stop leftward movement
-        } else if screen_x > MAX_SCREEN_X {
-            // Player is too far right on screen
+            self.vel.x = 0.0; // Stop leftward movement
+        } else if at_right_boundary && self.vel.x > 0.0 {
+            // Player is at right boundary and trying to move right
             self.pos.x = camera_offset_x + MAX_SCREEN_X;
-            self.vel.x = self.vel.x.min(0.0); // Stop rightward movement
+            self.vel.x = 0.0; // Stop rightward movement
         }
     }
 
@@ -134,5 +137,80 @@ impl Player {
     fn update_position(&mut self, dt: f32) {
         self.pos.x += self.vel.x * dt;
         self.pos.y += self.vel.y * dt;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_left_boundary_release() {
+        // Test that player can move away from left boundary
+        let mut player = Player::new(Vec2::new(100.0, 100.0));
+        let dt = 0.016; // ~60 FPS
+        let camera_offset = 0.0;
+        let scroll_speed = 0.0;
+        
+        // Force player to left boundary
+        player.pos.x = 15.0; // MIN_SCREEN_X position
+        player.vel.x = -50.0; // Moving left
+        
+        // Try to move right from boundary
+        let input = PlayerInput {
+            right: true,
+            ..Default::default()
+        };
+        
+        player.tick(dt, input, scroll_speed, camera_offset);
+        
+        // Player should be able to accelerate right
+        assert!(player.vel.x > -50.0, "Player should be able to accelerate right from left boundary");
+    }
+    
+    #[test]
+    fn test_right_boundary_release() {
+        // Test that player can move away from right boundary
+        let mut player = Player::new(Vec2::new(785.0, 100.0));
+        let dt = 0.016;
+        let camera_offset = 0.0;
+        let scroll_speed = 0.0;
+        
+        // Force player to right boundary
+        player.pos.x = 785.0; // MAX_SCREEN_X position
+        player.vel.x = 50.0; // Moving right
+        
+        // Try to move left from boundary
+        let input = PlayerInput {
+            left: true,
+            ..Default::default()
+        };
+        
+        player.tick(dt, input, scroll_speed, camera_offset);
+        
+        // Player should be able to accelerate left
+        assert!(player.vel.x < 50.0, "Player should be able to accelerate left from right boundary");
+    }
+    
+    #[test]
+    fn test_boundary_prevents_movement_through() {
+        // Test that boundaries still prevent movement through them
+        let mut player = Player::new(Vec2::new(15.0, 100.0));
+        let dt = 0.016;
+        let camera_offset = 0.0;
+        let scroll_speed = 0.0;
+        
+        // At left boundary, trying to move left
+        player.vel.x = -100.0;
+        let input = PlayerInput {
+            left: true,
+            ..Default::default()
+        };
+        
+        player.tick(dt, input, scroll_speed, camera_offset);
+        
+        // Player should remain at boundary
+        assert_eq!(player.pos.x, 15.0, "Player should stay at left boundary");
+        assert_eq!(player.vel.x, 0.0, "Leftward velocity should be stopped");
     }
 }

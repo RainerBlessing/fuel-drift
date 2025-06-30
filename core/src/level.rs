@@ -104,6 +104,11 @@ impl LevelManager {
             .ok_or(LevelError::InvalidLevelIndex(self.current_level_index))
     }
 
+    /// Gets the current level number (1-based)
+    pub fn current_level_number(&self) -> u32 {
+        self.current_level_index as u32 + 1
+    }
+
     /// Updates the level manager, checking for level progression
     pub fn update(&mut self, current_time: f32) -> LevelResult<bool> {
         let elapsed = current_time - self.level_start_time;
